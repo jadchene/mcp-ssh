@@ -1,95 +1,143 @@
-﻿# SSH MCP 服务
+[English](./README.md) | 简体中文
 
-一个面向生产环境、高度安全的远程服务器管理 Model Context Protocol (MCP) 服务。具备无状态连接、懒加载机制，以及针对高风险操作的强制性两步确认流程。
+# 🚀 mcp-ssh
 
-## 核心特性
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
+[![MCP Ready](https://img.shields.io/badge/MCP-Ready-blue)](https://modelcontextprotocol.io/)
 
-- **无状态与懒加载**：仅在调用工具时建立连接，并在执行完成后立即关闭。不维持持久的 SSH 隧道。
-- **安全至上**：
-  - 所有“写操作”（如 `rm`, `restart`, `docker_stop`）必须通过人工两步确认。
-  - 命令黑名单机制（防止执行 `rm -rf /` 等危险指令）。
-  - 针对关键系统目录的删除保护。
-- **上下文感知**：支持通过 `list_working_directories` 获取目录别名和路径映射。
-- **自动化工作流**：`execute_batch` 允许在一个会话内按顺序执行多个工具，并可在步骤间保持状态（如 `cd` 切换目录）。
+一款**生产级**的 Model Context Protocol (MCP) 服务器，专为安全、无状态的 SSH 自动化设计。本服务赋予 AI 智能体管理远程基础设施的能力，同时提供**人工介入（Human-in-the-loop）**的安全保障和**语义化环境感知**。
 
-## 工具列表 (共 45 个)
+---
 
-### 🛠️ 发现与核心 (8个)
-- `list_servers`: 列出所有配置的 SSH 服务器。
-- `ping_server`: 测试与特定服务器的连接性。
-- `list_working_directories`: 查看路径映射/别名。
-- `check_dependencies`: 验证目标服务器是否安装了必要的二进制文件（如 git, docker）。
-- `get_system_info`: 获取 CPU、内存和内核详细信息。
-- `pwd`: 显示当前远程路径。
-- `cd`: 切换目录（仅在 `execute_batch` 批量执行中生效）。
-- `execute_batch`: 在单个会话中按顺序运行一系列工具。
+## 🌟 核心支柱
 
-### 💻 Shell 与基础 (2个)
-- `execute_command` (*): 执行任意 Shell 命令。
-- `echo`: 打印文本或变量。
+### 🔒 极致的安全防护
+*   **两步确认机制**: 所有高危操作（写入、删除、重启）都会返回一个 `confirmationId`。在人类明确批准该笔交易前，服务器不会执行任何实际指令。
+*   **命令黑名单**: 实时正则拦截毁灭性命令，如 `rm -rf /` 或 `mkfs`。
+*   **服务器级只读模式**: 支持在配置层面将特定服务器锁定为非破坏性模式。
+*   **关键目录保护**: 代码级硬拦截对 `/etc`、`/usr` 等系统核心路径的误删操作。
 
-### 📂 文件管理 (5个)
-- `upload_file` (*): 从本地上传文件到远程。
-- `download_file`: 从远程下载文件到本地。
-- `ll`: 详细的目录列表。
-- `cat`: 读取文件内容。
-- `edit_text_file` (*): 替换文本类文件内容（使用 Base64 安全传输）。
-- `touch`: 创建空文件或更新时间戳。
-- `find`: 在目录层级中搜索文件。
+### 🧠 AI 原生设计
+*   **语义化基础设施发现**: AI 可以列出所有服务器，并通过自然语言描述理解其用途。
+*   **工作目录别名**: 将复杂的路径（如 `/var/www/my-app/v1/prod`）映射为简单的别名（如 `app-root`），并附带语义描述。
+*   **环境预检**: 内置工具支持在执行前验证远程依赖（如 Docker、Git）是否存在。
 
-### 🐳 Docker 与 Compose (18个)
-- `docker_compose_up` (*), `docker_compose_down` (*), `docker_compose_stop` (*), `docker_compose_restart` (*)
-- `docker_compose_logs`: 查看 Compose 日志。
-- `docker_ps`, `docker_images`
-- `docker_pull` (*), `docker_cp` (*), `docker_stop` (*), `docker_rm` (*), `docker_start` (*), `docker_rmi` (*), `docker_commit` (*)
-- `docker_logs`: 获取容器日志。
-- `docker_load` (*), `docker_save` (*)
+---
 
-### ⚙️ 系统服务 (4个)
-- `systemctl_status`: 查看服务状态。
-- `systemctl_start` (*), `systemctl_stop` (*), `systemctl_restart` (*): 服务生命周期管理。
+## 🚀 快速开始
 
-### 🌐 网络与统计 (8个)
-- `ip_addr`: 显示网络接口信息。
-- `firewall_cmd` (*): 管理防火墙规则。
-- `netstat`: 监控端口和连接。
-- `nvidia_smi`: GPU 状态监控。
-- `ps`: 进程快照。
-- `df_h`: 磁盘使用情况。
-- `du_sh`: 目录大小估算。
+### 安装
 
-> (*) 需要人工确认。
+```bash
+# 通过 npm 全局安装
+npm install -g @jadchene/mcp-ssh-service
 
-## 确认协议 (Confirmation Protocol)
+# 使用配置文件启动服务
+mcp-ssh-service --config ./config.json
+```
 
-对于标记为 `(*)` 的任何工具，服务遵循两步走流程：
-1. **请求**：携带参数调用工具。服务器返回 `confirmationId` 和 `status: "pending"`。
-2. **确认**：**再次调用同一个工具**，并传入 `confirmExecution: true` 和之前获得的 `confirmationId`。
+### 源码运行
 
-## 配置说明
+```bash
+git clone https://github.com/jadchene/mcp-ssh.git
+cd mcp-ssh
+npm install
+npm run build
+node dist/index.js --config ./config.json
+```
 
-外部配置文件 `config.json` 允许定义多台服务器及其工作目录别名：
+---
+
+## ⚙️ 配置参数详解
+
+### 全局设置
+| 参数 | 类型 | 描述 |
+| --- | --- | --- |
+| `logDir` | string | 日志存储目录。支持环境变量如 `${HOME}`。 |
+| `commandBlacklist` | string[] | 全局禁止执行的命令正则列表（如 `["^rm -rf"]`）。 |
+| `defaultTimeout` | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
+| `servers` | object | 服务器配置字典，Key 即为 `serverAlias`。 |
+
+### 服务器配置对象
+| 参数 | 类型 | 描述 |
+| --- | --- | --- |
+| `host` | string | 远程主机 IP 或域名。支持环境变量。 |
+| `port` | number | SSH 端口（默认 22）。 |
+| `username` | string | SSH 登录用户名。 |
+| `password` | string | SSH 密码。建议使用 `${VAR}` 引用环境变量。 |
+| `privateKeyPath` | string | 私钥文件路径。 |
+| `passphrase` | string | 私钥文件的保护口令。 |
+| `readOnly` | boolean | 是否设为只读模式。开启后禁用所有写操作工具。 |
+| `desc` | string | 服务器语义化描述，显示在 `list_servers` 中。 |
+| `strictHostKeyChecking` | boolean | 设为 `false` 以跳过 Host Key 校验。 |
+| `workingDirectories` | object | 路径别名映射（Key: { path, desc }）。 |
+| `proxyJump` | object | 可选的跳板机配置（结构与服务器配置一致）。 |
+
+---
+
+## ⚙️ 配置示例
 
 ```json
 {
+  "logDir": "./logs",
+  "defaultTimeout": 60000,
+  "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "servers": {
     "prod-web": {
-      "host": "192.168.1.100",
-      "user": "root",
-      "keyPath": "~/.ssh/id_rsa",
+      "desc": "核心 API 集群",
+      "host": "10.0.0.5",
+      "username": "deploy",
+      "privateKeyPath": "~/.ssh/id_rsa",
+      "passphrase": "${SSH_KEY_PWD}",
       "workingDirectories": {
-        "app": { "path": "/var/www/html", "desc": "Web 根目录" },
-        "logs": { "path": "/var/log/nginx", "desc": "Nginx 日志目录" }
+        "logs": { "path": "/var/log/nginx", "desc": "Nginx 访问日志目录" }
+      },
+      "proxyJump": {
+        "host": "bastion.example.com",
+        "username": "jumpuser"
       }
     }
   }
 }
 ```
 
-## 安装与运行
+---
 
-```bash
-npm install
-npm run build
-node dist/index.js
-```
+## 🛠️ 集成工具集 (45 个工具)
+
+### 📂 环境发现与上下文
+*   `list_servers`: 列出所有配置的主机及其描述。
+*   `ping_server`: 测试 SSH 连接及其凭据的有效性。
+*   `list_working_directories`: 获取语义化的路径映射。
+*   `get_system_info`: 获取 CPU、内存及系统负载。
+*   `check_dependencies`: 预检远程二进制依赖 (docker, git 等)。
+
+### 💻 文件与 Shell
+*   `execute_command`*, `execute_batch`*: 执行单条或批量 Shell 命令。
+*   `ll`, `cat`, `tail`, `grep`, `pwd`, `cd`: 浏览和搜索远程文件。
+*   `upload_file`*, `download_file`: 传输文件。
+*   `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: 文件系统管理。
+
+### 🐳 服务与自动化
+*   `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: 容器编排管理。
+*   `systemctl_status`, `systemctl_restart`*: 系统服务控制。
+*   `git_status`, `git_pull`*: 版本控制操作。
+*   `ip_addr`, `ping`, `netstat`, `df_h`, `nvidia_smi`: 监控与诊断。
+
+*\* 高危操作: 需要提供 confirmationId 并设置 confirmExecution: true 后方可执行。*
+
+---
+
+## 🔐 确认机制工作流
+
+1.  **发起请求**: AI 调用 `rm_safe({ path: "/tmp/old" })`。
+2.  **拦截指令**: 服务器返回 `status: "pending"` 及一个唯一的 `confirmationId`。
+3.  **人工审核**: 您在聊天客户端中预览并批准该操作。
+4.  **最终执行**: AI 携带 `confirmationId` 和 `confirmExecution: true` 再次发起调用。
+5.  **校验放行**: 服务器确认参数完全匹配且 ID 有效，正式下发 SSH 命令。
+
+---
+
+## 📄 许可证
+本项目采用 [MIT 许可证](./LICENSE)。
