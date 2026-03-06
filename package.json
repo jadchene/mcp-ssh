@@ -1,7 +1,7 @@
 {
-    "name":  "mcp-ssh",
+    "name":  "@jadchene/mcp-ssh-service",
     "version":  "1.0.0",
-    "description":  "An MCP server for stateless SSH command execution",
+    "description":  "A production-ready, highly secure SSH MCP server featuring stateless connections, two-step operation confirmation, and comprehensive DevOps tool integration.",
     "main":  "dist/index.js",
     "type":  "module",
     "bin":  {
