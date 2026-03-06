@@ -29,7 +29,7 @@ export class MCPServer {
 
     this.handlers = new ToolHandlers(configManager);
     this.setupHandlers();
-    
+
     this.server.onerror = (error) => logger.error("[MCP Error]", error);
     process.on("SIGINT", async () => {
       await this.server.close();
@@ -49,11 +49,15 @@ export class MCPServer {
         }
         logger.info(`Handling tool call: ${request.params.name}`, request.params.arguments);
         const result = await this.handlers.handleTool(request.params.name, request.params.arguments);
+        
+        // Ensure the result is a string for the MCP "text" content type
+        const textOutput = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+
         return {
           content: [
             {
               type: "text",
-              text: result,
+              text: textOutput,
             },
           ],
         };
