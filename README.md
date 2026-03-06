@@ -104,37 +104,82 @@ node dist/index.js --config ./config.json
 
 ---
 
-## 🛠️ Integrated Toolset (45 Tools)
+## 🛠️ Integrated Toolset (50 Tools)
 
-### 📂 Discovery & Context
-*   `list_servers`: Discovery available hosts.
-*   `ping_server`: Test SSH connection & credentials.
-*   `list_working_directories`: Get semantic path mappings.
-*   `get_system_info`: CPU, Memory, and System Uptime.
-*   `check_dependencies`: Verify remote binaries.
+### Discovery & Core (8)
+* `list_servers`
+* `ping_server`
+* `list_working_directories`
+* `check_dependencies`
+* `get_system_info`
+* `pwd`
+* `cd`
+* `execute_batch` [Auth Required if any sub-command is high-risk]
 
-### 💻 Shell & Files
-*   `execute_command`*, `execute_batch`*: Run single or sequenced shell commands.
-*   `ll`, `cat`, `tail`, `grep`, `pwd`, `cd`: Browse and search remote files.
-*   `upload_file`*, `download_file`: Transfer data.
-*   `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: File system management.
+### Shell & Basic (2)
+* `execute_command` [Auth Required]
+* `echo`
 
-### 🐳 DevOps & Services
-*   `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: Container orchestration.
-*   `systemctl_status`, `systemctl_restart`*: System service control.
-*   `git_status`, `git_pull`*: Version control.
-*   `ip_addr`, `ping`, `netstat`, `df_h`, `nvidia_smi`: Diagnostics.
+### File Management (10)
+* `upload_file` [Auth Required]
+* `download_file`
+* `ll`
+* `cat`
+* `tail`
+* `grep`
+* `edit_text_file` [Auth Required]
+* `touch`
+* `rm_safe` [Auth Required]
+* `find`
 
-*\* High-risk: Requires `confirmationId` and `confirmExecution: true`.*
+### Git (2)
+* `git_status`
+* `git_pull` [Auth Required]
+
+### Docker & Compose (17)
+* `docker_compose_up` [Auth Required]
+* `docker_compose_down` [Auth Required]
+* `docker_compose_stop` [Auth Required]
+* `docker_compose_logs`
+* `docker_compose_restart` [Auth Required]
+* `docker_ps`
+* `docker_images`
+* `docker_pull` [Auth Required]
+* `docker_cp` [Auth Required]
+* `docker_stop` [Auth Required]
+* `docker_rm` [Auth Required]
+* `docker_start` [Auth Required]
+* `docker_rmi` [Auth Required]
+* `docker_commit` [Auth Required]
+* `docker_logs`
+* `docker_load` [Auth Required]
+* `docker_save` [Auth Required]
+
+### Service & Network (7)
+* `systemctl_status`
+* `systemctl_restart` [Auth Required]
+* `systemctl_start` [Auth Required]
+* `systemctl_stop` [Auth Required]
+* `ip_addr`
+* `firewall_cmd` [Auth Required]
+* `netstat`
+
+### Stats & Process (4)
+* `nvidia_smi`
+* `ps`
+* `df_h`
+* `du_sh`
+
+Total: 50 tools.
 
 ---
 
 ## 🔐 The Confirmation Workflow
 
-1.  **Request**: AI calls `rm_safe({ path: '/tmp/old' })`.
+1.  **Request**: AI calls `execute_command({ command: 'systemctl restart nginx' })`.
 2.  **Intercept**: Server returns `status: "pending"` with a `confirmationId`.
 3.  **Human Input**: You review the action in your chat client and approve.
-4.  **Execution**: AI calls `rm_safe` again with the `confirmationId` and `confirmExecution: true`.
+4.  **Execution**: AI calls `execute_command` again with the `confirmationId` and `confirmExecution: true`.
 5.  **Verify**: Server ensures parameters match exactly and executes the SSH command.
 
 ---

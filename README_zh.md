@@ -104,37 +104,82 @@ node dist/index.js --config ./config.json
 
 ---
 
-## 🛠️ 集成工具集 (45 个工具)
+## 🛠️ 集成工具集 (50 个工具)
 
-### 📂 环境发现与上下文
-*   `list_servers`: 列出所有配置的主机及其描述。
-*   `ping_server`: 测试 SSH 连接及其凭据的有效性。
-*   `list_working_directories`: 获取语义化的路径映射。
-*   `get_system_info`: 获取 CPU、内存及系统负载。
-*   `check_dependencies`: 预检远程二进制依赖 (docker, git 等)。
+### 发现与核心 (8)
+* `list_servers`
+* `ping_server`
+* `list_working_directories`
+* `check_dependencies`
+* `get_system_info`
+* `pwd`
+* `cd`
+* `execute_batch` [若子命令含高风险操作则需确认]
 
-### 💻 文件与 Shell
-*   `execute_command`*, `execute_batch`*: 执行单条或批量 Shell 命令。
-*   `ll`, `cat`, `tail`, `grep`, `pwd`, `cd`: 浏览和搜索远程文件。
-*   `upload_file`*, `download_file`: 传输文件。
-*   `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: 文件系统管理。
+### Shell 与基础 (2)
+* `execute_command` [需确认]
+* `echo`
 
-### 🐳 服务与自动化
-*   `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: 容器编排管理。
-*   `systemctl_status`, `systemctl_restart`*: 系统服务控制。
-*   `git_status`, `git_pull`*: 版本控制操作。
-*   `ip_addr`, `ping`, `netstat`, `df_h`, `nvidia_smi`: 监控与诊断。
+### 文件管理 (10)
+* `upload_file` [需确认]
+* `download_file`
+* `ll`
+* `cat`
+* `tail`
+* `grep`
+* `edit_text_file` [需确认]
+* `touch`
+* `rm_safe` [需确认]
+* `find`
 
-*\* 高危操作: 需要提供 confirmationId 并设置 confirmExecution: true 后方可执行。*
+### Git (2)
+* `git_status`
+* `git_pull` [需确认]
+
+### Docker 与 Compose (17)
+* `docker_compose_up` [需确认]
+* `docker_compose_down` [需确认]
+* `docker_compose_stop` [需确认]
+* `docker_compose_logs`
+* `docker_compose_restart` [需确认]
+* `docker_ps`
+* `docker_images`
+* `docker_pull` [需确认]
+* `docker_cp` [需确认]
+* `docker_stop` [需确认]
+* `docker_rm` [需确认]
+* `docker_start` [需确认]
+* `docker_rmi` [需确认]
+* `docker_commit` [需确认]
+* `docker_logs`
+* `docker_load` [需确认]
+* `docker_save` [需确认]
+
+### 系统服务与网络 (7)
+* `systemctl_status`
+* `systemctl_restart` [需确认]
+* `systemctl_start` [需确认]
+* `systemctl_stop` [需确认]
+* `ip_addr`
+* `firewall_cmd` [需确认]
+* `netstat`
+
+### 统计与进程 (4)
+* `nvidia_smi`
+* `ps`
+* `df_h`
+* `du_sh`
+
+总计：50 个工具。
 
 ---
 
 ## 🔐 确认机制工作流
 
-1.  **发起请求**: AI 调用 `rm_safe({ path: "/tmp/old" })`。
+1.  **发起请求**: AI 调用 `execute_command({ command: "systemctl restart nginx" })`。
 2.  **拦截指令**: 服务器返回 `status: "pending"` 及一个唯一的 `confirmationId`。
 3.  **人工审核**: 您在聊天客户端中预览并批准该操作。
-4.  **最终执行**: AI 携带 `confirmationId` 和 `confirmExecution: true` 再次发起调用。
+4.  **最终执行**: AI 携带 `confirmationId` 和 `confirmExecution: true` 再次调用 `execute_command`。
 5.  **校验放行**: 服务器确认参数完全匹配且 ID 有效，正式下发 SSH 命令。
 
 ---

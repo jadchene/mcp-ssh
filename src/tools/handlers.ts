@@ -6,6 +6,8 @@ const WRITE_TOOLS = [
   'execute_command',
   'upload_file',
   'edit_text_file',
+  'rm_safe',
+  'git_pull',
   'docker_compose_up',
   'docker_compose_down',
   'docker_compose_stop',
@@ -72,12 +74,20 @@ export class ToolHandlers {
       case 'cd': return `cd ${params.path}`;
       case 'll': return 'ls -l';
       case 'cat': return `cat ${params.filePath}`;
+      case 'tail': return `tail -n ${params.lines || 50} ${params.filePath}`;
+      case 'grep': return `grep ${params.ignoreCase ? '-inE' : '-nE'} "${params.pattern.replace(/"/g, '\\"')}" ${params.filePath}`;
       case 'edit_text_file':
         const edB64 = Buffer.from(params.content).toString('base64');
         return `echo "${edB64}" | base64 -d > ${params.filePath}`;
       case 'touch': return `touch ${params.filePath}`;
+      case 'rm_safe':
+        const restricted = ['/', '/etc', '/usr', '/bin', '/var', '/root', '/home'];
+        if (restricted.includes(params.path.trim())) throw new Error(`RM_SAFE: Denied for restricted directory.`);
+        return `rm ${params.recursive ? '-rf' : '-f'} ${params.path}`;
       case 'echo': return `echo "${params.text}"`;
       case 'find': return `find ${params.path} -name "${params.name}"`;
+      case 'git_status': return 'git status';
+      case 'git_pull': return 'git pull --no-edit';
       case 'execute_command': return params.command;
       case 'docker_compose_up': return 'docker-compose up -d';
       case 'docker_compose_down': return 'docker-compose down --remove-orphans';

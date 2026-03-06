@@ -125,6 +125,16 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({ filePath: { type: 'string' }, ...grepParam }, ['filePath'])
   },
   {
+    name: 'tail',
+    description: 'Log inspection: Reads last N lines of a file.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['filePath'])
+  },
+  {
+    name: 'grep',
+    description: 'Pattern search: Search for a regex pattern in a file.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, pattern: { type: 'string' }, ignoreCase: { type: 'boolean' } }, ['filePath', 'pattern'])
+  },
+  {
     name: 'edit_text_file',
     description: 'File creation/overwrite: Completely replaces file content. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({
@@ -139,9 +149,26 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({ filePath: { type: 'string' } }, ['filePath'])
   },
   {
+    name: 'rm_safe',
+    description: 'File deletion: Removes file or directory. REQUIRES CONFIRMATION.',
+    inputSchema: baseParams({ path: { type: 'string' }, recursive: { type: 'boolean' }, ...confirmationParams }, ['path'])
+  },
+  {
     name: 'find',
     description: 'Search for files in a directory hierarchy.',
     inputSchema: baseParams({ path: { type: 'string' }, name: { type: 'string' }, ...grepParam }, ['path'])
+  },
+
+  // --- Git ---
+  {
+    name: 'git_status',
+    description: 'Git status: Displays repository status.',
+    inputSchema: baseParams(cwdParam)
+  },
+  {
+    name: 'git_pull',
+    description: 'Git update: Pulls latest changes. REQUIRES CONFIRMATION.',
+    inputSchema: baseParams({ ...cwdParam, ...confirmationParams })
   },
 
   // --- Docker & Compose (Requirements) ---
