@@ -119,6 +119,60 @@ node dist/index.js --config ./config.json
 
 ---
 
+## MCP 客户端配置
+
+下面的示例展示了如何在常见 AI 客户端中注册本 MCP 服务。请将配置文件路径替换为你自己的本地路径。为了保持配置可移植，以下示例刻意避免使用绝对路径。
+
+### Codex
+
+`~/.codex/config.toml`
+
+```toml
+[mcp_servers.ssh]
+command = "mcp-ssh-service"
+args = ["--config", "./config.json"]
+```
+
+### Gemini CLI
+
+`~/.gemini/settings.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "type": "stdio",
+      "command": "mcp-ssh-service",
+      "args": [
+        "--config",
+        "./config.json"
+      ]
+    }
+  }
+}
+```
+
+### Claude Code
+
+`~/.claude.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "type": "stdio",
+      "command": "mcp-ssh-service",
+      "args": [
+        "--config",
+        "./config.json"
+      ]
+    }
+  }
+}
+```
+
+---
+
 ## 🛠️ 集成工具集 (50 个工具)
 
 ### 发现与核心 (8)
