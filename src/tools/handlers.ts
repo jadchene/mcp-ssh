@@ -1,4 +1,4 @@
-import { SSHClient } from '../ssh.js';
+﻿import { SSHClient } from '../ssh.js';
 import { ConfigManager, ServerConfig } from '../config.js';
 import { confirmationManager } from '../core/confirmation.js';
 
@@ -6,18 +6,23 @@ const WRITE_TOOLS = [
   'execute_command',
   'upload_file',
   'edit_text_file',
-  'append_text_file',
-  'mkdir',
-  'chmod',
-  'mv',
-  'cp',
-  'rm_safe',
-  'touch',
-  'git_pull',
   'docker_compose_up',
   'docker_compose_down',
+  'docker_compose_stop',
   'docker_compose_restart',
-  'systemctl_restart'
+  'docker_pull',
+  'docker_cp',
+  'docker_stop',
+  'docker_rm',
+  'docker_start',
+  'docker_rmi',
+  'docker_commit',
+  'docker_load',
+  'docker_save',
+  'systemctl_restart',
+  'systemctl_start',
+  'systemctl_stop',
+  'firewall_cmd'
 ];
 
 const DEFAULT_BLACKLIST = [
@@ -67,40 +72,41 @@ export class ToolHandlers {
       case 'cd': return `cd ${params.path}`;
       case 'll': return 'ls -l';
       case 'cat': return `cat ${params.filePath}`;
-      case 'tail': return `tail -n ${params.lines || 50} ${params.filePath}`;
-      case 'mkdir': return `mkdir -p ${params.path}`;
-      case 'chmod': return `chmod ${params.mode} ${params.path}`;
-      case 'mv': return `mv -f ${params.source} ${params.destination}`;
-      case 'cp': return `cp -f ${params.recursive ? '-r' : ''} ${params.source} ${params.destination}`;
-      case 'rm_safe':
-        const restricted = ['/', '/etc', '/usr', '/bin', '/var', '/root', '/home'];
-        if (restricted.includes(params.path.trim())) throw new Error(`RM_SAFE: Denied for restricted directory.`);
-        return `rm ${params.recursive ? '-rf' : '-f'} ${params.path}`;
-      case 'touch': return `touch ${params.filePath}`;
-      case 'append_text_file':
-        const appB64 = Buffer.from(params.content).toString('base64');
-        return `echo "${appB64}" | base64 -d >> ${params.filePath}`;
       case 'edit_text_file':
         const edB64 = Buffer.from(params.content).toString('base64');
         return `echo "${edB64}" | base64 -d > ${params.filePath}`;
-      case 'git_status': return 'git status';
-      case 'git_pull': return 'git pull --no-edit';
-      case 'git_log': return `git log -n ${params.count || 10} --oneline`;
+      case 'touch': return `touch ${params.filePath}`;
+      case 'echo': return `echo "${params.text}"`;
+      case 'find': return `find ${params.path} -name "${params.name}"`;
       case 'execute_command': return params.command;
       case 'docker_compose_up': return 'docker-compose up -d';
       case 'docker_compose_down': return 'docker-compose down --remove-orphans';
+      case 'docker_compose_stop': return 'docker-compose stop';
       case 'docker_compose_logs': return `docker-compose logs -n ${params.lines || 100}`;
       case 'docker_compose_restart': return 'docker-compose restart';
       case 'docker_ps': return 'docker ps';
+      case 'docker_images': return 'docker images';
+      case 'docker_pull': return `docker pull ${params.image}`;
+      case 'docker_cp': return `docker cp ${params.source} ${params.destination}`;
+      case 'docker_stop': return `docker stop ${params.container}`;
+      case 'docker_rm': return `docker rm ${params.container}`;
+      case 'docker_start': return `docker start ${params.container}`;
+      case 'docker_rmi': return `docker rmi ${params.image}`;
+      case 'docker_commit': return `docker commit ${params.container} ${params.repository}`;
       case 'docker_logs': return `docker logs -n ${params.lines || 100} ${params.container}`;
+      case 'docker_load': return `docker load -i ${params.path}`;
+      case 'docker_save': return `docker save -o ${params.path} ${params.image}`;
       case 'systemctl_status': return `systemctl status ${params.service}`;
       case 'systemctl_restart': return `systemctl restart ${params.service}`;
+      case 'systemctl_start': return `systemctl start ${params.service}`;
+      case 'systemctl_stop': return `systemctl stop ${params.service}`;
       case 'ip_addr': return 'ip addr';
-      case 'ping': return `ping -c ${params.count || 4} ${params.host}`;
+      case 'firewall_cmd': return `firewall-cmd ${params.args}`;
       case 'netstat': return `netstat ${params.args || '-tuln'}`;
       case 'df_h': return 'df -h';
       case 'du_sh': return `du -sh ${params.path}`;
       case 'nvidia_smi': return 'nvidia-smi';
+      case 'ps': return 'ps aux';
       default: return '';
     }
   }
@@ -129,7 +135,7 @@ export class ToolHandlers {
 
     // --- Confirmation Logic ---
     const isWriteAction = WRITE_TOOLS.includes(name) || (name === 'execute_batch' && params.commands?.some((c: any) => WRITE_TOOLS.includes(c.name)));
-    
+
     if (isWriteAction) {
       if (srv.readOnly) throw new Error(`Server '${serverAlias}' is read-only.`);
       if (confirmationId && confirmExecution === true) {

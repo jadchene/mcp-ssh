@@ -1,143 +1,95 @@
-English | [简体中文](./README_zh.md)
+﻿# SSH MCP Service
 
-# 🚀 mcp-ssh
+A production-ready, highly secure Model Context Protocol (MCP) server for remote server management. It features stateless connections, lazy loading, and a mandatory two-step confirmation flow for high-risk operations.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
-[![MCP Ready](https://img.shields.io/badge/MCP-Ready-blue)](https://modelcontextprotocol.io/)
+## Core Features
 
-A **production-grade** Model Context Protocol (MCP) server designed for secure, stateless SSH automation. This service empowers AI agents to manage remote infrastructure with **human-in-the-loop** safety and **semantic environment awareness**.
+- **Stateless & Lazy Loading**: Connections are only established when a tool is called and closed immediately after execution. No persistent SSH tunnels.
+- **Security First**: 
+  - Mandatory manual confirmation for all "Write Actions" (e.g., `rm`, `restart`, `docker_stop`).
+  - Command blacklist (prevents `rm -rf /`, etc.).
+  - Restricted directory protection for safe deletions.
+- **Context Aware**: Supports directory aliases and path mapping via `list_working_directories`.
+- **Workflow Automation**: `execute_batch` allows running multiple commands in a single session with state (like `cd`) preserved between steps.
 
----
+## Tool List (45 Total)
 
-## 🌟 Key Pillars
+### 🛠️ Discovery & Core (8)
+- `list_servers`: List all configured SSH servers.
+- `ping_server`: Test connectivity to a specific server.
+- `list_working_directories`: View path mappings/aliases.
+- `check_dependencies`: Verify if required binaries (git, docker, etc.) are installed.
+- `get_system_info`: Get CPU, memory, and kernel details.
+- `pwd`: Show current remote path.
+- `cd`: Change directory (effective within `execute_batch`).
+- `execute_batch`: Run a sequence of tools in one session.
 
-### 🔒 Uncompromising Security
-*   **Two-Step Confirmation**: High-risk operations (writes, deletes, restarts) return a `confirmationId`. Nothing happens until a human approves the specific transaction.
-*   **Command Blacklist**: Real-time regex interception for catastrophic commands like `rm -rf /` or `mkfs`.
-*   **Server-Level Read-Only**: Lock specific servers to a non-destructive mode at the configuration level.
-*   **Restricted File Deletion**: Hardcoded prevention of accidental deletion of system-critical paths like `/etc` or `/usr`.
+### 💻 Shell & Basic (2)
+- `execute_command` (*): Run any arbitrary shell command.
+- `echo`: Print text or variables.
 
-### 🧠 AI-Native Design
-*   **Semantic Infrastructure Discovery**: AI can list servers and understand their purposes via natural language descriptions.
-*   **Working Directory Aliases**: Map complex paths to simple aliases like `app-root` with descriptive metadata.
-*   **Contextual Pre-checks**: Built-in tools to verify dependencies (Docker, Git) before execution.
+### 📂 File Management (5)
+- `upload_file` (*): Transfer file from local to remote.
+- `download_file`: Transfer file from remote to local.
+- `ll`: Detailed directory listing.
+- `cat`: Read file content.
+- `edit_text_file` (*): Replace file content (Safe Base64 transfer).
+- `touch`: Create empty file or update timestamp.
+- `find`: Search for files in a directory hierarchy.
 
----
+### 🐳 Docker & Compose (18)
+- `docker_compose_up` (*), `docker_compose_down` (*), `docker_compose_stop` (*), `docker_compose_restart` (*)
+- `docker_compose_logs`: View compose logs.
+- `docker_ps`, `docker_images`
+- `docker_pull` (*), `docker_cp` (*), `docker_stop` (*), `docker_rm` (*), `docker_start` (*), `docker_rmi` (*), `docker_commit` (*)
+- `docker_logs`: Get container logs.
+- `docker_load` (*), `docker_save` (*)
 
-## 🚀 Quick Start
+### ⚙️ System Services (4)
+- `systemctl_status`
+- `systemctl_start` (*), `systemctl_stop` (*), `systemctl_restart` (*)
 
-### Installation
+### 🌐 Network & Stats (8)
+- `ip_addr`: Show network interfaces.
+- `firewall_cmd` (*): Manage firewall rules.
+- `netstat`: Monitor ports and connections.
+- `nvidia_smi`: GPU status.
+- `ps`: Process snapshot.
+- `df_h`: Disk usage.
+- `du_sh`: Directory size estimation.
 
-```bash
-# Install globally via npm
-npm install -g @jadchene/mcp-ssh-service
+> (*) Requires manual confirmation.
 
-# Start the server with a config file
-mcp-ssh-service --config ./config.json
-```
+## Confirmation Protocol
 
-### Source Setup
+For any tool marked with `(*)`, the service follows a two-step flow:
+1. **Request**: Call the tool with parameters. The server returns a `confirmationId` and `status: "pending"`.
+2. **Confirm**: Call the **same tool again** with `confirmExecution: true` and the provided `confirmationId`.
 
-```bash
-git clone https://github.com/jadchene/mcp-ssh.git
-cd mcp-ssh
-npm install
-npm run build
-node dist/index.js --config ./config.json
-```
+## Configuration
 
----
-
-## ⚙️ Configuration Schema
-
-### Global Settings
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `logDir` | string | Directory for logs. Supports env vars like `${HOME}`. |
-| `commandBlacklist` | string[] | Prohibited command regex patterns (e.g., `["^rm -rf"]`). |
-| `defaultTimeout` | number | Command timeout in milliseconds (default: 60000). |
-| `servers` | object | Dictionary of server configs where key is the `serverAlias`. |
-
-### Server Object
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `host` | string | Remote IP or hostname. Supports env vars. |
-| `port` | number | SSH port (default: 22). |
-| `username` | string | SSH login user. |
-| `password` | string | SSH password. Use `${VAR}` for security. |
-| `privateKeyPath` | string | Path to private key file. |
-| `passphrase` | string | Passphrase for the private key. |
-| `readOnly` | boolean | Disables all write/modify tools for this server. |
-| `desc` | string | Server description shown in `list_servers`. |
-| `strictHostKeyChecking` | boolean | Set to `false` to bypass host key verification. |
-| `workingDirectories` | object | Semantic path mappings (Key: { path, desc }). |
-| `proxyJump` | object | Optional jump host (recursive server config). |
-
----
-
-## ⚙️ Configuration Example
+External configuration `config.json` allows defining multiple servers and their working directory aliases:
 
 ```json
 {
-  "logDir": "./logs",
-  "defaultTimeout": 60000,
-  "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "servers": {
     "prod-web": {
-      "desc": "Primary API Cluster",
-      "host": "10.0.0.5",
-      "username": "deploy",
-      "privateKeyPath": "~/.ssh/id_rsa",
-      "passphrase": "${SSH_KEY_PWD}",
+      "host": "192.168.1.100",
+      "user": "root",
+      "keyPath": "~/.ssh/id_rsa",
       "workingDirectories": {
-        "logs": { "path": "/var/log/nginx", "desc": "Nginx access logs" }
-      },
-      "proxyJump": {
-        "host": "bastion.example.com",
-        "username": "jumpuser"
+        "app": { "path": "/var/www/html", "desc": "Web Root" },
+        "logs": { "path": "/var/log/nginx", "desc": "Nginx Logs" }
       }
     }
   }
 }
 ```
 
----
+## Installation
 
-## 🛠️ Integrated Toolset (45 Tools)
-
-### 📂 Discovery & Context
-*   `list_servers`: Discovery available hosts.
-*   `ping_server`: Test SSH connection & credentials.
-*   `list_working_directories`: Get semantic path mappings.
-*   `get_system_info`: CPU, Memory, and System Uptime.
-*   `check_dependencies`: Verify remote binaries.
-
-### 💻 Shell & Files
-*   `execute_command`*, `execute_batch`*: Run single or sequenced shell commands.
-*   `ll`, `cat`, `tail`, `grep`, `pwd`, `cd`: Browse and search remote files.
-*   `upload_file`*, `download_file`: Transfer data.
-*   `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: File system management.
-
-### 🐳 DevOps & Services
-*   `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: Container orchestration.
-*   `systemctl_status`, `systemctl_restart`*: System service control.
-*   `git_status`, `git_pull`*: Version control.
-*   `ip_addr`, `ping`, `netstat`, `df_h`, `nvidia_smi`: Diagnostics.
-
-*\* High-risk: Requires `confirmationId` and `confirmExecution: true`.*
-
----
-
-## 🔐 The Confirmation Workflow
-
-1.  **Request**: AI calls `rm_safe({ path: '/tmp/old' })`.
-2.  **Intercept**: Server returns `status: "pending"` with a `confirmationId`.
-3.  **Human Input**: You review the action in your chat client and approve.
-4.  **Execution**: AI calls `rm_safe` again with the `confirmationId` and `confirmExecution: true`.
-5.  **Verify**: Server ensures parameters match exactly and executes the SSH command.
-
----
-
-## 📄 License
-Released under the [MIT License](./LICENSE).
+```bash
+npm install
+npm run build
+node dist/index.js
+```
