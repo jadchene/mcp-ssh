@@ -9,23 +9,33 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function findPackageJson(startDir: string): string | null {
+  let current = startDir;
+  while (current !== path.parse(current).root) {
+    const pkgPath = path.join(current, "package.json");
+    if (fs.existsSync(pkgPath)) return pkgPath;
+    current = path.dirname(current);
+  }
+  return null;
+}
+
 async function main() {
   const args = process.argv.slice(2);
 
-  // Check for version flag
   if (args.includes("-v") || args.includes("--version")) {
-    try {
-      const packageJsonPath = path.resolve(__dirname, "../package.json");
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-      console.log(`v${packageJson.version}`);
-    } catch (err) {
-      console.log("unknown version");
+    const pkgPath = findPackageJson(__dirname);
+    if (pkgPath) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+        console.log(`v${pkg.version}`);
+        process.exit(0);
+      } catch (e) {}
     }
+    console.log("unknown version");
     process.exit(0);
   }
 
   try {
-    // Find config path from args or env
     let configPath = process.env.MCP_SSH_CONFIG || "config.json";
     const configIdx = args.indexOf("--config");
     if (configIdx !== -1 && args[configIdx + 1]) {
