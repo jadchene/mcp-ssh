@@ -1,4 +1,4 @@
-{
+﻿{
   "logDir": "./logs",
   "commandBlacklist": [
     "^apt-get upgrade",
@@ -7,32 +7,30 @@
   "defaultTimeout": 60000,
   "servers": {
     "prod-web": {
-      "desc": "生产环境 Web 服务器 (通过跳板机访问)",
+      "desc": "Production Web Server (Jump Host)",
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
       "privateKeyPath": "./id_rsa_prod",
-      "passphrase": "${SSH_PASSPHRASE}",
+      "passphrase": "${SSH_KEY_PWD}",
       "strictHostKeyChecking": false,
       "workingDirectories": {
-        "html": {
-          "path": "/var/www/html",
-          "desc": "Nginx 网页根目录"
-        },
-        "logs": {
-          "path": "/var/log/nginx",
-          "desc": "Nginx 访问与错误日志目录"
-        }
+        "html": { "path": "/var/www/html", "desc": "Nginx Root" }
       },
       "proxyJump": {
-        "host": "47.91.x.x",
-        "port": 22,
-        "username": "jump-user",
+        "host": "bastion.example.com",
+        "username": "jumpuser",
         "password": "${JUMP_PWD}"
       }
     },
+    "direct-ssh": {
+      "desc": "Direct SSH with Password",
+      "host": "192.168.1.59",
+      "username": "root",
+      "password": "${SERVER_PWD}"
+    },
     "test-db": {
-      "desc": "数据库测试服务器 (只读)",
+      "desc": "Read-only Test Database",
       "host": "192.168.1.50",
       "username": "tester",
       "password": "password123",
