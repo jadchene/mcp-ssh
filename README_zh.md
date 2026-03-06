@@ -1,6 +1,6 @@
 [English](./README.md) | 简体中文
 
-# 🚀 MCP SSH Service
+# 🚀 mcp-ssh
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
@@ -45,8 +45,8 @@ mcp-ssh-service --config ./config.json
 ### 源码运行 (开发环境)
 
 ```bash
-git clone https://github.com/jadchene/mcp-ssh-service.git
-cd mcp-ssh-service
+git clone https://github.com/jadchene/mcp-ssh.git
+cd mcp-ssh
 npm install
 npm run build
 node dist/index.js --config ./config.json
