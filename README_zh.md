@@ -1,44 +1,56 @@
+﻿[English](./README.md) | 简体中文
+
 # MCP SSH Server (SSH MCP 服务器)
 
-基于 Model Context Protocol (MCP) 的生产级无状态 SSH 命令执行、管理与自动化服务器。
+一款生产级的 Model Context Protocol (MCP) 服务器，用于无状态 SSH 命令执行、管理与自动化。
 
-## 核心特性
+本服务器为 AI 智能体提供了安全且感知上下文的远程基础设施访问能力。它具备独特的“两步确认”机制来处理高危操作，在实现强大自动化的同时确保了操作的绝对安全性。
 
-- **无状态与懒加载**: 仅在需要时建立 SSH 连接，执行完毕后立即断开。
-- **AI 原生发现机制**: 提供 `list_servers` 和 `list_working_directories` 工具，帮助 AI 智能体自主识别环境。
-- **坚固的安全性**:
-  - **人机交互**: 所有的写操作或高危工具在调用前必须经过人工确认。
-  - **命令黑名单**: 内置针对 `rm -rf /` 等危险操作的保护，并支持自定义正则过滤。
-  - **只读模式**: 支持在配置层面锁定特定服务器为只读。
-  - **受限删除**: 代码级拦截对根目录或系统关键目录的破坏性操作。
-- **高级网络支持**: 支持 **跳板机 (ProxyJump)**、带**密码的私钥 (Passphrase)** 以及自定义端口。
-- **运维利器**: 集成了对 Git、Docker、Docker Compose 和 Systemd 的原生工具支持。
-- **热更新**: 修改 `config.json` 后配置即刻生效，无需重启服务。
-- **环境变量支持**: 支持在配置文件中使用 `${VAR}` 占位符，保护敏感凭据。
+## 快速开始
 
-## 运行要求
-- **远程服务器**: 建议安装 `base64`（用于文本编辑）和常见的运维工具。
-
-## 安装
+### 通过 npm 安装:
 
 ```bash
 npm install -g mcp-ssh
+mcp-ssh --config ./config.json
 ```
 
-## 配置
+### 从源码运行:
 
-创建一个 `config.json` 鏂囦欢。服务器会在当前工作目录或 `MCP_SSH_CONFIG` 环境变量指定的路径查找该文件。
+```bash
+git clone https://github.com/jadchene/mcp-ssh.git
+cd mcp-ssh
+npm install
+npm run build
+node dist/index.js --config ./config.json
+```
+
+## 核心特性
+
+- **无状态与懒加载**: 仅在执行工具时建立 SSH 连接，执行完毕后立即断开。
+- **两步确认机制**: 所有高危工具（写操作）会先返回一个 `confirmationId`。只有在带上 `confirmExecution: true` 进行第二次调用时才会真正执行，为 AI 自动化提供了可靠的人工介入屏障。
+- **AI 原生发现机制**: 支持语义化路径映射和服务器列表，帮助 AI 智能体自主理解并导航您的基础设施。
+- **高级网络支持**: 支持 **跳板机 (ProxyJump)**、带**密码的私钥 (Passphrase)** 以及可自定义的超时控制。
+- **坚固的安全性**: 全局命令黑名单（基于正则）、服务器级只读模式，以及系统关键目录的硬拦截保护。
+- **卓越的运维能力**: 原生集成对 Git、Docker、Docker Compose 和 Systemd 的支持。
+- **配置热更新**: 对 `config.json` 的修改无需重启服务即可即刻生效。
+
+## 配置说明
+
+服务器默认读取 `config.json` 文件。您可以通过 `--config` 参数或 `MCP_SSH_CONFIG` 环境变量来指定路径。
 
 ```json
 {
+  "logDir": "./logs",
+  "commandBlacklist": ["rm -rf /etc"],
   "servers": {
-    "my-server": {
-      "desc": "主 Web 服务器",
+    "prod-server": {
+      "desc": "主要生产环境 Web 服务器",
       "host": "1.2.3.4",
-      "username": "root",
+      "username": "deploy",
       "password": "${SERVER_PWD}",
       "workingDirectories": {
-        "app": { "path": "/opt/app", "desc": "应用程序源码目录" }
+        "app": { "path": "/var/www/html", "desc": "Web 应用程序根目录" }
       }
     }
   }
@@ -47,25 +59,26 @@ npm install -g mcp-ssh
 
 ## 可用工具清单
 
-### 1. 环境发现与上下文
-- `list_servers`: 列出所有可用的主机及其描述。
+### 环境发现与上下文
+- `list_servers`: 列出所有配置的主机及其描述。
 - `list_working_directories`: 获取语义化的路径映射。
-- `get_system_info`: 获取 CPU、内存、负载等系统信息。
-- `check_dependencies`: 预检远程服务器环境（如是否安装了 docker）。
+- `ping_server`: 测试 SSH 连接及其凭据的有效性。
+- `get_system_info`: 获取 CPU、内存及系统负载。
+- `check_dependencies`: 预检远程二进制依赖 (docker, git 等)。
 
-### 2. 文件与 Shell
+### 文件与 Shell
 - `execute_command`*, `execute_batch`*: 执行单条或批量 Shell 命令。
 - `ll`, `cat`, `tail`, `grep`: 浏览和搜索远程文件。
 - `upload_file`*, `download_file`: 传输文件。
-- `mkdir`, `mv`*, `chmod`*, `rm_safe`*: 文件系统管理与维护。
+- `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: 文件系统管理。
 
-### 3. 服务与自动化
-- `docker_ps`, `docker_logs`, `docker_compose_up`*: Docker 容器管理。
+### 服务与自动化
+- `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: Docker 栈管理。
 - `systemctl_status`, `systemctl_restart`*: 系统服务控制。
 - `git_status`, `git_pull`*: 版本控制操作。
 - `ip_addr`, `ping`, `netstat`: 网络诊断。
 
-*\* 标有星号的工具需要人工显式确认后方可执行。*
+*\* 标有星号的工具需要提供 confirmationId 并设置 confirmExecution: true 后方可执行。*
 
 ## 许可证
 MIT
