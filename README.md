@@ -1,84 +1,125 @@
 ﻿English | [简体中文](./README_zh.md)
 
-# MCP SSH Server
+# 🚀 MCP SSH Service
 
-A production-grade Model Context Protocol (MCP) server for stateless SSH command execution, management, and automation.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
+[![MCP Ready](https://img.shields.io/badge/MCP-Ready-blue)](https://modelcontextprotocol.io/)
 
-This server provides AI agents with secure, context-aware access to remote infrastructures using SSH. It features a unique two-step confirmation mechanism for high-risk operations, ensuring safety while enabling powerful automation.
+A **production-grade** Model Context Protocol (MCP) server designed for secure, stateless SSH automation. This service empowers AI agents to manage remote infrastructure with **human-in-the-loop** safety and **semantic environment awareness**.
 
-## Quick Start
+---
 
-### Install from npm:
+## 🌟 Key Pillars
 
-```bash
-npm install -g mcp-ssh
-mcp-ssh --config ./config.json
-```
+### 🔒 Uncompromising Security
+*   **Two-Step Confirmation**: High-risk operations (writes, deletes, restarts) return a \confirmationId\. Nothing happens until a human approves the specific transaction.
+*   **Command Blacklist**: Real-time regex interception for catastrophic commands like \m -rf /\ or \mkfs\.
+*   **Server-Level Read-Only**: Lock specific servers to a non-destructive mode at the configuration level.
+*   **Restricted File Deletion**: Hardcoded prevention of accidental deletion of system-critical paths like \/etc\ or \/usr\.
 
-### Run from source:
+### 🧠 AI-Native Design
+*   **Semantic Infrastructure Discovery**: AI can list servers and understand their purposes via natural language descriptions.
+*   **Working Directory Aliases**: Map complex paths (e.g., \/var/www/my-app/v1/prod\) to simple aliases like \pp-root\ with descriptive metadata.
+*   **Contextual Pre-checks**: Built-in tools to verify dependencies (Docker, Git) before execution.
 
-```bash
+### 🛠️ Enterprise DevOps Integration
+*   **Stateless Connections**: Lazy-loaded SSH sessions that close immediately after use—no lingering idle processes.
+*   **Advanced Networking**: Native support for **ProxyJump (Jump Hosts)** and private keys with **passphrases**, and customizable timeouts.
+*   **Rich Toolset**: 45+ integrated tools covering Git, Docker, Docker Compose, Systemd, and Network diagnostics.
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+\\\ash
+# Install globally via npm
+npm install -g @jadchene/mcp-ssh-service
+
+# Start the server with a config file
+mcp-ssh-service --config ./config.json
+\\\
+
+### Source Setup (Development)
+
+\\\ash
 git clone https://github.com/jadchene/mcp-ssh.git
 cd mcp-ssh
 npm install
 npm run build
 node dist/index.js --config ./config.json
-```
+\\\
 
-## Core Features
+---
 
-- **Stateless & Lazy**: SSH connections are established only during tool execution and closed immediately after.
-- **Two-Step Confirmation**: High-risk tools (write operations) return a `confirmationId`. Execution only proceeds after a second call with `confirmExecution: true`, providing a robust human-in-the-loop safety net.
-- **AI-Native Discovery**: Semantic path mappings and server listing help AI agents understand and navigate your environment.
-- **Advanced Networking**: Supports **ProxyJump (Jump Hosts)**, private keys with **Passphrases**, and customizable timeouts.
-- **Robust Security**: Global command blacklists (regex-based), read-only modes, and protection for system-critical directories.
-- **Operational Excellence**: Integrated support for Git, Docker, Docker Compose, and Systemd.
-- **Configuration Hot-Reload**: Changes to `config.json` are applied instantly without server restarts.
+## ⚙️ Advanced Configuration
 
-## Configuration
+The service leverages an external \config.json\. It supports **environment variable substitution** and **hot-reloading**.
 
-The server expects a `config.json` file. You can specify the path via the `--config` flag or the `MCP_SSH_CONFIG` environment variable.
-
-```json
+\\\json
 {
   "logDir": "./logs",
-  "commandBlacklist": ["rm -rf /etc"],
+  "defaultTimeout": 60000,
+  "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "servers": {
-    "prod-server": {
-      "desc": "Primary Production Web Server",
-      "host": "1.2.3.4",
+    "prod-web": {
+      "desc": "Primary API Cluster",
+      "host": "10.0.0.5",
       "username": "deploy",
-      "password": "${SERVER_PWD}",
+      "privateKeyPath": "~/.ssh/id_rsa",
+      "passphrase": "${SSH_KEY_PWD}",
       "workingDirectories": {
-        "app": { "path": "/var/www/html", "desc": "Web application root" }
+        "logs": { "path": "/var/log/nginx", "desc": "Nginx access logs" }
+      },
+      "proxyJump": {
+        "host": "bastion.example.com",
+        "username": "jumpuser"
       }
     }
   }
 }
-```
+\\\
 
-## Available Tools
+---
 
-### Discovery & Context
-- `list_servers`: Discovery all configured hosts.
-- `list_working_directories`: Get semantic path mappings.
-- `ping_server`: Test SSH connection and credentials.
-- `get_system_info`: CPU, Memory, and System Uptime.
-- `check_dependencies`: Verify remote binaries (docker, git, etc.).
+## 🛠️ Integrated Toolset (45 Tools)
 
-### Shell & Files
-- `execute_command`*, `execute_batch`*: Run single or multiple shell commands.
-- `ll`, `cat`, `tail`, `grep`: Browse and search remote files.
-- `upload_file`*, `download_file`: Transfer files.
-- `mkdir`*, `mv`*, `cp`*, `chmod`*, `rm_safe`*, `touch`*: File system management.
+### 📂 Discovery & Context
+*   \list_servers\: Discovery available hosts.
+*   \ping_server\: Test SSH connection & credentials.
+*   \list_working_directories\: Get semantic path mappings.
+*   \get_system_info\: CPU, Memory, and System Uptime.
+*   \check_dependencies\: Verify remote binaries.
 
-### Services & Automation
-- `docker_ps`, `docker_logs`, `docker_compose_up`*, `docker_compose_restart`*: Docker stack management.
-- `systemctl_status`, `systemctl_restart`*: Service control.
-- `git_status`, `git_pull`*: Version control.
-- `ip_addr`, `ping`, `netstat`: Network diagnostics.
+### 💻 Shell & Files
+*   \execute_command\*, \execute_batch\*: Run single or sequenced shell commands.
+*   \ll\, \cat\, \	ail\, \grep\, \pwd\, \cd\: Browse and search remote files.
+*   \upload_file\*, \download_file\: Transfer data.
+*   \mkdir\*, \mv\*, \cp\*, \chmod\*, \m_safe\*, \	ouch\*: File system management.
 
-*\* Tools requiring confirmationId and confirmExecution: true.*
+### 🐳 DevOps & Services
+*   \docker_ps\, \docker_logs\, \docker_compose_up\*, \docker_compose_restart\*: Container orchestration.
+*   \systemctl_status\, \systemctl_restart\*: System service control.
+*   \git_status\, \git_pull\*: Version control.
+*   \ip_addr\, \ping\, \
+etstat\, \df_h\, \
+vidia_smi\: Diagnostics.
 
-## License
-MIT
+*\* High-risk: Requires \confirmationId\ and \confirmExecution: true\.*
+
+---
+
+## 🔐 The Confirmation Workflow
+
+1.  **Request**: AI calls \m_safe({ path: '/tmp/old' })\.
+2.  **Intercept**: Server returns \status: "pending"\ with a \confirmationId\.
+3.  **Human Input**: You review the action in your chat client and approve.
+4.  **Execution**: AI calls \m_safe\ again with the \confirmationId\ and \confirmExecution: true\.
+5.  **Verify**: Server ensures parameters match exactly and executes the SSH command.
+
+---
+
+## 📄 License
+Released under the [MIT License](./LICENSE).
