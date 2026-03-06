@@ -119,6 +119,60 @@ When your agent supports skills, load this skill before using SSH MCP tools for 
 
 ---
 
+## MCP Client Configuration
+
+The following examples show how to register this MCP server in common AI clients. Replace the config path with your own local file path. To keep the setup portable, the examples below intentionally avoid absolute paths.
+
+### Codex
+
+`~/.codex/config.toml`
+
+```toml
+[mcp_servers.ssh]
+command = "mcp-ssh-service"
+args = ["--config", "./config.json"]
+```
+
+### Gemini CLI
+
+`settings.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "type": "stdio",
+      "command": "mcp-ssh-service",
+      "args": [
+        "--config",
+        "./config.json"
+      ]
+    }
+  }
+}
+```
+
+### Claude Code
+
+`.claude.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "type": "stdio",
+      "command": "mcp-ssh-service",
+      "args": [
+        "--config",
+        "./config.json"
+      ]
+    }
+  }
+}
+```
+
+---
+
 ## 🛠️ Integrated Toolset (50 Tools)
 
 ### Discovery & Core (8)
