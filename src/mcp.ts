@@ -1,13 +1,14 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+﻿import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { toolDefinitions } from './tools/definitions.js';
-import { ToolHandlers } from './tools/handlers.js';
-import { ConfigManager } from './config.js';
-import { logger } from './logger.js';
+} from "@modelcontextprotocol/sdk/types.js";
+import { toolDefinitions } from "./tools/definitions.js";
+import { ToolHandlers } from "./tools/handlers.js";
+import { ConfigManager } from "./config.js";
+import { logger } from "./logger.js";
+import { NAME, VERSION } from "./version.js";
 
 export class MCPServer {
   private server: Server;
@@ -16,8 +17,8 @@ export class MCPServer {
   constructor(configManager: ConfigManager) {
     this.server = new Server(
       {
-        name: 'mcp-ssh',
-        version: '1.0.0',
+        name: NAME,
+        version: VERSION,
       },
       {
         capabilities: {
@@ -29,8 +30,8 @@ export class MCPServer {
     this.handlers = new ToolHandlers(configManager);
     this.setupHandlers();
     
-    this.server.onerror = (error) => logger.error('[MCP Error]', error);
-    process.on('SIGINT', async () => {
+    this.server.onerror = (error) => logger.error("[MCP Error]", error);
+    process.on("SIGINT", async () => {
       await this.server.close();
       process.exit(0);
     });
@@ -44,14 +45,14 @@ export class MCPServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         if (!request.params.arguments) {
-          throw new Error('No arguments provided');
+          throw new Error("No arguments provided");
         }
         logger.info(`Handling tool call: ${request.params.name}`, request.params.arguments);
         const result = await this.handlers.handleTool(request.params.name, request.params.arguments);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: result,
             },
           ],
@@ -61,7 +62,7 @@ export class MCPServer {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: `Error: ${error.message}`,
             },
           ],
@@ -74,6 +75,7 @@ export class MCPServer {
   public async start() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    logger.info('MCP SSH Server running on stdio');
+    logger.info("MCP SSH Server running on stdio");
   }
 }
+
