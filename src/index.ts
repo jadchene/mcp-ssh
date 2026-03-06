@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 import { MCPServer } from "./mcp.js";
 import { ConfigManager } from "./config.js";
 import { logger } from "./logger.js";
