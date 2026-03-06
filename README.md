@@ -1,4 +1,4 @@
-English | [简体中文](./README_zh.md)
+﻿English | [简体中文](./README_zh.md)
 
 # 🚀 mcp-ssh
 
@@ -54,7 +54,34 @@ node dist/index.js --config ./config.json
 
 ---
 
-## ⚙️ Advanced Configuration
+
+## ⚙️ Configuration Schema
+
+### Global Settings
+| Parameter | Type | Description |
+| --- | --- | --- |
+| \logDir\ | string | Directory for logs. Supports env vars like \\C:\Users\jadch\. |
+| \commandBlacklist\ | string[] | Prohibited command regex patterns (e.g., \[\"^rm -rf\"] \). |
+| \defaultTimeout\ | number | Command timeout in milliseconds (default: 60000). |
+| \servers\ | object | Dictionary of server configs where key is the \serverAlias\. |
+
+### Server Object
+| Parameter | Type | Description |
+| --- | --- | --- |
+| \host\ | string | Remote IP or hostname. Supports env vars. |
+| \port\ | number | SSH port (default: 22). |
+| \username\ | string | SSH login user. |
+| \password\ | string | SSH password. Use \\\ for security. |
+| \privateKeyPath\ | string | Path to private key file. |
+| \passphrase\ | string | Passphrase for the private key. |
+| \eadOnly\ | boolean | Disables all write/modify tools for this server. |
+| \desc\ | string | Server description shown in \list_servers\. |
+| \strictHostKeyChecking\ | boolean | Set to \alse\ to bypass host key verification. |
+| \workingDirectories\ | object | Semantic path mappings (Key: { path, desc }). |
+| \proxyJump\ | object | Optional jump host (recursive server config). |
+
+---
+## ⚙️ Configuration Example
 
 The service leverages an external `config.json`. It supports **environment variable substitution** and **hot-reloading**.
 
@@ -121,3 +148,4 @@ The service leverages an external `config.json`. It supports **environment varia
 
 ## 📄 License
 Released under the [MIT License](./LICENSE).
+

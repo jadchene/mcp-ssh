@@ -1,4 +1,4 @@
-[English](./README.md) | 简体中文
+﻿[English](./README.md) | 简体中文
 
 # 🚀 mcp-ssh
 
@@ -54,7 +54,34 @@ node dist/index.js --config ./config.json
 
 ---
 
-## ⚙️ 进阶配置
+
+## ⚙️ 配置参数详解
+
+### 全局设置
+| 参数 | 类型 | 描述 |
+| --- | --- | --- |
+| \logDir\ | string | 日志存储目录。支持环境变量如 \\C:\Users\jadch\。 |
+| \commandBlacklist\ | string[] | 全局禁止执行的命令正则列表（如 \[\"^rm -rf\"] \）。 |
+| \defaultTimeout\ | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
+| \servers\ | object | 服务器配置字典，Key 即为 \serverAlias\。 |
+
+### 服务器配置对象
+| 参数 | 类型 | 描述 |
+| --- | --- | --- |
+| \host\ | string | 远程主机 IP 或域名。支持环境变量。 |
+| \port\ | number | SSH 端口（默认 22）。 |
+| \username\ | string | SSH 登录用户名。 |
+| \password\ | string | SSH 密码。建议使用 \\\ 引用环境变量。 |
+| \privateKeyPath\ | string | 私钥文件路径。 |
+| \passphrase\ | string | 私钥文件的保护口令。 |
+| \eadOnly\ | boolean | 是否设为只读模式。开启后禁用所有写操作工具。 |
+| \desc\ | string | 服务器语义化描述，显示在 \list_servers\ 中。 |
+| \strictHostKeyChecking\ | boolean | 设为 \alse\ 以跳过 Host Key 校验。 |
+| \workingDirectories\ | object | 路径别名映射（Key: { path, desc }）。 |
+| \proxyJump\ | object | 可选的跳板机配置（结构与服务器配置一致）。 |
+
+---
+## ⚙️ 配置示例
 
 本服务使用外部 `config.json` 文件，支持**环境变量替换**和**配置热重载**。
 
@@ -121,3 +148,4 @@ node dist/index.js --config ./config.json
 
 ## 📄 许可证
 本项目采用 [MIT 许可证](./LICENSE)。
+
