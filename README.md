@@ -45,8 +45,8 @@ mcp-ssh-service --config ./config.json
 ### Source Setup (Development)
 
 ```bash
-git clone https://github.com/jadchene/mcp-ssh.git
-cd mcp-ssh
+git clone https://github.com/jadchene/mcp-ssh-service.git
+cd mcp-ssh-service
 npm install
 npm run build
 node dist/index.js --config ./config.json

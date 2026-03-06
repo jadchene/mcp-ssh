@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "mcp-ssh": "dist/index.js"
+    "mcp-ssh-service": "dist/index.js"
   },
   "files": [
     "dist"

@@ -52,7 +52,7 @@ $resolvedProjectRoot = (Resolve-Path $ProjectRoot).Path
 $packageJsonPath = Join-Path $resolvedProjectRoot "package.json"
 $defaultConfigPath = Join-Path $resolvedProjectRoot "config.example.json"
 $resolvedConfigPath = if ($ExampleConfigPath) { $ExampleConfigPath } else { $defaultConfigPath }
-$packageName = "mcp-ssh"
+$packageName = "mcp-ssh-service"
 
 if (-not (Test-Path $packageJsonPath)) {
     throw "package.json not found under project root: $resolvedProjectRoot"        
@@ -73,13 +73,13 @@ try {
     }
 
     try {
-        Invoke-Step -FilePath "npm" -Arguments @("uninstall", "-g", $packageName) -WorkingDirectory $resolvedProjectRoot -Description "Remove any previous global installation of mcp-ssh"
+        Invoke-Step -FilePath "npm" -Arguments @("uninstall", "-g", $packageName) -WorkingDirectory $resolvedProjectRoot -Description "Remove any previous global installation of mcp-ssh-service"
     }
     catch {
         Write-Host "Previous global installation was not removed cleanly. Continuing with fresh install."
     }
 
-    Invoke-Step -FilePath "npm" -Arguments @("install", "-g", $tarballPath) -WorkingDirectory $resolvedProjectRoot -Description "Install the packaged mcp-ssh tarball globally"
+    Invoke-Step -FilePath "npm" -Arguments @("install", "-g", $tarballPath) -WorkingDirectory $resolvedProjectRoot -Description "Install the packaged mcp-ssh-service tarball globally"
 
     if (-not $KeepTarball -and (Test-Path $tarballPath)) {
         Remove-Item $tarballPath -Force
@@ -91,16 +91,16 @@ finally {
 
 Write-Host ""
 Write-Host "Global installation completed."
-Write-Host "Command: mcp-ssh"
+Write-Host "Command: mcp-ssh-service"
 Write-Host "Example start command:"
-Write-Host "  mcp-ssh --config $resolvedConfigPath"
+Write-Host "  mcp-ssh-service --config $resolvedConfigPath"
 Write-Host ""
 Write-Host "Example MCP server configuration:"
 
 $example = @{
     mcpServers = @{
         ssh = @{
-            command = "mcp-ssh"
+            command = "mcp-ssh-service"
             args = @()
             env = @{
                 MCP_SSH_CONFIG = $resolvedConfigPath
