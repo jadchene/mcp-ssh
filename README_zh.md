@@ -1,4 +1,4 @@
-﻿[English](./README.md) | 简体中文
+[English](./README.md) | 简体中文
 
 # 🚀 mcp-ssh
 
@@ -23,11 +23,6 @@
 *   **工作目录别名**: 将复杂的路径（如 `/var/www/my-app/v1/prod`）映射为简单的别名（如 `app-root`），并附带语义描述。
 *   **环境预检**: 内置工具支持在执行前验证远程依赖（如 Docker、Git）是否存在。
 
-### 🛠️ 企业级 DevOps 集成
-*   **无状态连接**: 采用懒加载 SSH 会话，用完即关，不留任何冗余的后台进程。
-*   **高级网络支持**: 原生支持 **跳板机 (ProxyJump)** 以及带密码保护的私钥。
-*   **丰富的工具集**: 集成 45+ 实用工具，涵盖 Git、Docker、Docker Compose、Systemd 和网络诊断。
-
 ---
 
 ## 🚀 快速开始
@@ -42,7 +37,7 @@ npm install -g @jadchene/mcp-ssh-service
 mcp-ssh-service --config ./config.json
 ```
 
-### 源码运行 (开发环境)
+### 源码运行
 
 ```bash
 git clone https://github.com/jadchene/mcp-ssh.git
@@ -54,36 +49,34 @@ node dist/index.js --config ./config.json
 
 ---
 
-
 ## ⚙️ 配置参数详解
 
 ### 全局设置
 | 参数 | 类型 | 描述 |
 | --- | --- | --- |
-| \logDir\ | string | 日志存储目录。支持环境变量如 \\C:\Users\jadch\。 |
-| \commandBlacklist\ | string[] | 全局禁止执行的命令正则列表（如 \[\"^rm -rf\"] \）。 |
-| \defaultTimeout\ | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
-| \servers\ | object | 服务器配置字典，Key 即为 \serverAlias\。 |
+| `logDir` | string | 日志存储目录。支持环境变量如 `${HOME}`。 |
+| `commandBlacklist` | string[] | 全局禁止执行的命令正则列表（如 `["^rm -rf"]`）。 |
+| `defaultTimeout` | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
+| `servers` | object | 服务器配置字典，Key 即为 `serverAlias`。 |
 
 ### 服务器配置对象
 | 参数 | 类型 | 描述 |
 | --- | --- | --- |
-| \host\ | string | 远程主机 IP 或域名。支持环境变量。 |
-| \port\ | number | SSH 端口（默认 22）。 |
-| \username\ | string | SSH 登录用户名。 |
-| \password\ | string | SSH 密码。建议使用 \\\ 引用环境变量。 |
-| \privateKeyPath\ | string | 私钥文件路径。 |
-| \passphrase\ | string | 私钥文件的保护口令。 |
-| \eadOnly\ | boolean | 是否设为只读模式。开启后禁用所有写操作工具。 |
-| \desc\ | string | 服务器语义化描述，显示在 \list_servers\ 中。 |
-| \strictHostKeyChecking\ | boolean | 设为 \alse\ 以跳过 Host Key 校验。 |
-| \workingDirectories\ | object | 路径别名映射（Key: { path, desc }）。 |
-| \proxyJump\ | object | 可选的跳板机配置（结构与服务器配置一致）。 |
+| `host` | string | 远程主机 IP 或域名。支持环境变量。 |
+| `port` | number | SSH 端口（默认 22）。 |
+| `username` | string | SSH 登录用户名。 |
+| `password` | string | SSH 密码。建议使用 `${VAR}` 引用环境变量。 |
+| `privateKeyPath` | string | 私钥文件路径。 |
+| `passphrase` | string | 私钥文件的保护口令。 |
+| `readOnly` | boolean | 是否设为只读模式。开启后禁用所有写操作工具。 |
+| `desc` | string | 服务器语义化描述，显示在 `list_servers` 中。 |
+| `strictHostKeyChecking` | boolean | 设为 `false` 以跳过 Host Key 校验。 |
+| `workingDirectories` | object | 路径别名映射（Key: { path, desc }）。 |
+| `proxyJump` | object | 可选的跳板机配置（结构与服务器配置一致）。 |
 
 ---
-## ⚙️ 配置示例
 
-本服务使用外部 `config.json` 文件，支持**环境变量替换**和**配置热重载**。
+## ⚙️ 配置示例
 
 ```json
 {
@@ -148,4 +141,3 @@ node dist/index.js --config ./config.json
 
 ## 📄 许可证
 本项目采用 [MIT 许可证](./LICENSE)。
-
