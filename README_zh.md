@@ -49,6 +49,21 @@ node dist/index.js --config ./config.json
 
 ---
 
+## 🧩 Skill 集成（推荐）
+
+对于 Codex、Gemini 等 AI 助手，仓库内已提供 `ssh-mcp` skill，配合使用可显著提升执行稳定性与安全一致性。
+
+- Skill 路径：`skills/ssh-mcp/SKILL.md`
+- 主要收益：
+  - 对高风险操作强制执行两步确认
+  - 多步骤任务优先使用 `execute_batch`，避免高风险命令串联
+  - 统一服务器发现、依赖预检、执行后校验流程
+  - 减少误操作与上下文压缩导致的执行偏差
+
+若你的 AI 客户端支持 Skills，建议在调用 SSH MCP 工具前先加载该 skill。
+
+---
+
 ## ⚙️ 配置参数详解
 
 ### 全局设置
