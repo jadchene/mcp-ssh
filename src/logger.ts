@@ -17,6 +17,9 @@ export const logger = winston.createLogger({
   defaultMeta: { service: 'mcp-ssh' },
   transports: [
     new winston.transports.Console({
+      // MCP over stdio requires stdout to carry only protocol frames.
+      // Route all logs to stderr to avoid corrupting the MCP stream.
+      stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'],
       format: winston.format.combine(
         winston.format.colorize(),
         winston.format.simple()
