@@ -135,7 +135,7 @@ args = ["--config", "./config.json"]
 
 ### Gemini CLI
 
-`settings.json`
+`~/.gemini/settings.json`
 
 ```json
 {
@@ -154,7 +154,7 @@ args = ["--config", "./config.json"]
 
 ### Claude Code
 
-`.claude.json`
+`~/.claude.json`
 
 ```json
 {
