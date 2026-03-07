@@ -62,7 +62,7 @@ export const toolDefinitions: Tool[] = [
   // --- Batch (Core) ---
   {
     name: 'execute_batch',
-    description: 'Workflow automation: Executes a sequence of multiple tools in a single persistent SSH session. REQUIRES CONFIRMATION if any sub-tool is high-risk.',
+    description: 'Workflow automation: Executes a sequence of multiple tools in a single persistent SSH session. REQUIRES CONFIRMATION when any high-risk sub-tool final command is not whitelisted.',
     inputSchema: baseParams({
       commands: {
         type: 'array',
@@ -83,7 +83,7 @@ export const toolDefinitions: Tool[] = [
   // --- Shell & Basic (Requirements) ---
   {
     name: 'execute_command',
-    description: 'Arbitrary execution: Runs any shell command via SSH. REQUIRES CONFIRMATION.',
+    description: 'Single-command execution: Runs exactly one shell command segment via SSH. Rejects chaining, pipes, redirection, subshell syntax, and multiline input. REQUIRES CONFIRMATION unless the final command is whitelisted.',
     inputSchema: baseParams({
       command: { type: 'string' },
       ...cwdParam,
@@ -286,13 +286,20 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'firewall_cmd',
-    description: 'Control the runtime/permanent firewall. REQUIRES CONFIRMATION.',
-    inputSchema: baseParams({ args: { type: 'string' }, ...confirmationParams }, ['args'])
+    description: 'Structured firewall control. Supports action=list|add-port|remove-port|reload with optional zone, permanent, and listTarget. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({
+      action: { type: 'string', enum: ['list', 'add-port', 'remove-port', 'reload'] },
+      listTarget: { type: 'string', enum: ['ports', 'services', 'all'] },
+      port: { type: 'string' },
+      zone: { type: 'string' },
+      permanent: { type: 'boolean' },
+      ...confirmationParams
+    }, ['action'])
   },
   {
     name: 'netstat',
-    description: 'Monitor ports/connections.',
-    inputSchema: baseParams({ args: { type: 'string' }, ...grepParam })
+    description: 'Monitor ports/connections. Use args as an array of individual option tokens, for example ["-t", "-u", "-l", "-n"].',
+    inputSchema: baseParams({ args: { type: 'array', items: { type: 'string' } }, ...grepParam })
   },
 
   // --- Stats & Process (Requirements) ---

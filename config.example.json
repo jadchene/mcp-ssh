@@ -4,6 +4,10 @@
     "^apt-get upgrade",
     "curl.*\\|.*sh"
   ],
+  "commandWhitelist": [
+    "^systemctl status\\s+nginx$",
+    "^docker ps$"
+  ],
   "defaultTimeout": 60000,
   "servers": {
     "prod-web": {

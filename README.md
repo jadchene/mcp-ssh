@@ -15,6 +15,8 @@ A **production-grade** Model Context Protocol (MCP) server designed for secure, 
 ### 🔒 Uncompromising Security
 *   **Two-Step Confirmation**: High-risk operations (writes, deletes, restarts) return a `confirmationId`. Nothing happens until a human approves the specific transaction.
 *   **Command Blacklist**: Real-time regex interception for catastrophic commands like `rm -rf /` or `mkfs`.
+*   **Command Whitelist**: Trusted final command strings can bypass manual confirmation by matching configured regex patterns. This applies to built-in high-risk tools and to `execute_batch` sub-commands.
+*   **Single-Command Enforcement**: `execute_command` rejects shell chaining, pipes, redirection, subshells, and multiline payloads at the server layer.
 *   **Server-Level Read-Only**: Lock specific servers to a non-destructive mode at the configuration level.
 *   **Restricted File Deletion**: Hardcoded prevention of accidental deletion of system-critical paths like `/etc` or `/usr`.
 
@@ -71,6 +73,7 @@ When your agent supports skills, load this skill before using SSH MCP tools for 
 | --- | --- | --- |
 | `logDir` | string | Directory for logs. Supports env vars like `${HOME}`. |
 | `commandBlacklist` | string[] | Prohibited command regex patterns (e.g., `["^rm -rf"]`). |
+| `commandWhitelist` | string[] | Trusted final-command regex patterns that can skip confirmation for high-risk tools and `execute_batch` sub-commands. |
 | `defaultTimeout` | number | Command timeout in milliseconds (default: 60000). |
 | `servers` | object | Dictionary of server configs where key is the `serverAlias`. |
 
@@ -98,6 +101,7 @@ When your agent supports skills, load this skill before using SSH MCP tools for 
   "logDir": "./logs",
   "defaultTimeout": 60000,
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
+  "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
       "desc": "Primary API Cluster",
@@ -186,7 +190,7 @@ args = ["--config", "./config.json"]
 * `execute_batch` [Auth Required if any sub-command is high-risk]
 
 ### Shell & Basic (2)
-* `execute_command` [Auth Required]
+* `execute_command` [Auth Required, single command only]
 * `echo`
 
 ### File Management (10)
@@ -230,8 +234,8 @@ args = ["--config", "./config.json"]
 * `systemctl_start` [Auth Required]
 * `systemctl_stop` [Auth Required]
 * `ip_addr`
-* `firewall_cmd` [Auth Required]
-* `netstat`
+* `firewall_cmd` [Auth Required, structured actions only]
+* `netstat` [uses `args: string[]`]
 
 ### Stats & Process (4)
 * `nvidia_smi`
@@ -250,6 +254,12 @@ Total: 50 tools.
 3.  **Human Input**: You review the action in your chat client and approve.
 4.  **Execution**: AI calls `execute_command` again with the `confirmationId` and `confirmExecution: true`.
 5.  **Verify**: Server ensures parameters match exactly and executes the SSH command.
+
+If a high-risk tool's final command string matches `commandWhitelist`, the server skips the pending confirmation step and runs it directly. For `execute_batch`, only non-whitelisted high-risk sub-commands keep the batch in the confirmation flow.
+
+`execute_command` is limited to one shell command segment. The server rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. For built-in tools, user-provided parameters are shell-escaped before execution to reduce command injection risk.
+
+`firewall_cmd` no longer accepts a free-form shell fragment. Use structured fields such as `action`, `port`, `zone`, `permanent`, and `listTarget`. `netstat` now accepts `args: string[]` so each option is validated as an individual token.
 
 ---
 

@@ -10,11 +10,12 @@ Operate remote servers securely using the stateless SSH MCP service.
 ## Core Mandates
 
 - **Stateless Operation**: Every command is a fresh connection. Use `execute_batch` when you need to maintain state (like `cd`) across multiple commands.
-- **Single-Command Preference**: Keep `execute_command` to a single command whenever possible. For sequential or multi-step operations, use `execute_batch` by default.
+- **Single-Command Enforcement**: `execute_command` is server-enforced single-command only. Do not send shell chaining, pipes, redirection, subshell syntax, or multiline payloads. For sequential or multi-step operations, use `execute_batch` by default.
 - **Confirmation Safety**: All write operations (including but not limited to `rm`, `git_pull`, `docker_restart`, `chmod`) require a two-step confirmation via `confirmationId`.
 - **Discovery First**: Never guess a server key or path. Always use discovery tools to verify your environment.
 - **No Implicit Authorization**: Never treat one user confirmation as authorization for later write actions. Every high-risk step needs its own fresh user confirmation.
 - **Compression Recovery Gate**: After any context compression event, re-read `AGENTS.md` (if present in the workspace) and this `SKILL.md` before continuing. Do not execute pending high-risk step-2 calls until this re-read is done.
+- **Whitelist Awareness**: Confirmation bypass is based on the final executable command string, not only on the tool name. This applies to built-in high-risk tools and to `execute_batch` sub-commands as well, but it never overrides `readOnly` server restrictions.
 
 ## Required Workflow
 
@@ -24,8 +25,10 @@ Operate remote servers securely using the stateless SSH MCP service.
 4.  **Health Check**: Call `get_system_info` if the task involves performance or capacity issues.
 5.  **Execution**: 
     - Use specific tools (`docker_ps`, `git_status`) instead of generic `execute_command` whenever possible.
-    - Avoid packing multiple commands into one `execute_command`; prefer `execute_batch` for chained steps.
+    - Do not attempt to pack multiple commands into `execute_command`; the server rejects chaining and multiline input.
     - Use `grep` parameters inside tools to filter large outputs and save context.
+    - Use `firewall_cmd` with structured fields such as `action`, `port`, `zone`, `permanent`, and `listTarget`. Do not assume an `args` string exists.
+    - Use `netstat` with `args: string[]` where each entry is a single option token (for example `["-t", "-u", "-l", "-n"]`).
 
 ## Two-Step Confirmation Protocol
 
@@ -47,13 +50,14 @@ This protocol is **MANDATORY** for all tools that modify the system (Write Actio
 
 - Use `execute_batch` when a task requires sequential steps where state must be preserved (primarily current working directory).
 - **Batch Navigation**: You can use `cd` within a batch to affect subsequent commands in the same batch.
-- **Batch Safety**: If a batch contains even one write action, the **entire batch** will trigger the two-step confirmation flow.
+- **Batch Safety**: If a batch contains even one write action whose final command string is not whitelisted, the **entire batch** will trigger the two-step confirmation flow.
 
 ## Prohibited Actions
 
 - **Never** attempt to bypass the confirmation flow.
 - **Never** chain multiple destructive operations in one opaque command when they can be split and confirmed independently.
 - **Never** execute commands that match patterns in the global blacklist (e.g., `rm -rf /`, `mkfs`).
+- **Never** send raw free-form shell fragments to `firewall_cmd` or multi-word entries inside `netstat.args`.
 - **Never** try to delete system-critical directories using `rm_safe` (e.g., `/etc`, `/usr`, `/var`).
 - If a server is marked as `readOnly`, do not attempt any write actions; inform the user instead.
 

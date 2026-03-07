@@ -37,6 +37,7 @@ export interface ServerConfig {
 export interface AppConfig {
   logDir?: string;
   commandBlacklist?: string[];
+  commandWhitelist?: string[];
   defaultTimeout?: number;
   servers: Record<string, ServerConfig>;
 }
@@ -156,6 +157,10 @@ export class ConfigManager {
 
   public getGlobalBlacklist(): string[] {
     return this.config.commandBlacklist || [];
+  }
+
+  public getGlobalWhitelist(): string[] {
+    return this.config.commandWhitelist || [];
   }
 
   public getDefaultTimeout(): number {

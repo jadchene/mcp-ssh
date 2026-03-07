@@ -15,6 +15,8 @@
 ### 🔒 极致的安全防护
 *   **两步确认机制**: 所有高危操作（写入、删除、重启）都会返回一个 `confirmationId`。在人类明确批准该笔交易前，服务器不会执行任何实际指令。
 *   **命令黑名单**: 实时正则拦截毁灭性命令，如 `rm -rf /` 或 `mkfs`。
+*   **命令白名单**: 命中配置的可信最终命令字符串可直接放行，内置高危 tool 与 `execute_batch` 子命令同样适用。
+*   **单命令强制约束**: `execute_command` 在服务端拒绝 shell 串联、管道、重定向、子 shell 和多行输入。
 *   **服务器级只读模式**: 支持在配置层面将特定服务器锁定为非破坏性模式。
 *   **关键目录保护**: 代码级硬拦截对 `/etc`、`/usr` 等系统核心路径的误删操作。
 
@@ -71,6 +73,7 @@ node dist/index.js --config ./config.json
 | --- | --- | --- |
 | `logDir` | string | 日志存储目录。支持环境变量如 `${HOME}`。 |
 | `commandBlacklist` | string[] | 全局禁止执行的命令正则列表（如 `["^rm -rf"]`）。 |
+| `commandWhitelist` | string[] | 可信最终命令正则列表，命中后可让高危 tool 及 `execute_batch` 内对应子命令跳过二次确认。 |
 | `defaultTimeout` | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
 | `servers` | object | 服务器配置字典，Key 即为 `serverAlias`。 |
 
@@ -98,6 +101,7 @@ node dist/index.js --config ./config.json
   "logDir": "./logs",
   "defaultTimeout": 60000,
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
+  "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
       "desc": "核心 API 集群",
@@ -186,7 +190,7 @@ args = ["--config", "./config.json"]
 * `execute_batch` [若子命令含高风险操作则需确认]
 
 ### Shell 与基础 (2)
-* `execute_command` [需确认]
+* `execute_command` [需确认，仅允许单条命令]
 * `echo`
 
 ### 文件管理 (10)
@@ -230,8 +234,8 @@ args = ["--config", "./config.json"]
 * `systemctl_start` [需确认]
 * `systemctl_stop` [需确认]
 * `ip_addr`
-* `firewall_cmd` [需确认]
-* `netstat`
+* `firewall_cmd` [需确认，仅支持结构化常用动作]
+* `netstat` [使用 `args: string[]`]
 
 ### 统计与进程 (4)
 * `nvidia_smi`
@@ -250,6 +254,12 @@ args = ["--config", "./config.json"]
 3.  **人工审核**: 您在聊天客户端中预览并批准该操作。
 4.  **最终执行**: AI 携带 `confirmationId` 和 `confirmExecution: true` 再次调用 `execute_command`。
 5.  **校验放行**: 服务器确认参数完全匹配且 ID 有效，正式下发 SSH 命令。
+
+如果某个高危 tool 生成的最终命令命中了 `commandWhitelist`，服务器会跳过 `pending` 阶段直接执行。对于 `execute_batch`，只有包含未命中白名单的高危子命令时，整批任务才会进入二次确认流程。
+
+`execute_command` 仅允许一个 shell 命令段。服务器会拒绝 `&&`、`||`、`;`、管道、重定向、子 shell 语法以及多行输入。对于内置 tool，所有用户传入参数会在执行前做 shell 转义，以降低命令注入风险。
+
+`firewall_cmd` 不再接受自由拼接的 shell 参数片段，改为使用 `action`、`port`、`zone`、`permanent`、`listTarget` 这些结构化字段。`netstat` 则改为 `args: string[]`，服务端会按独立参数逐项校验。
 
 ---
 
