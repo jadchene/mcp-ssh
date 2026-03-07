@@ -6,17 +6,26 @@ const WRITE_TOOLS = [
   'execute_command',
   'upload_file',
   'edit_text_file',
+  'append_text_file',
+  'mkdir',
+  'mv',
+  'cp',
+  'replace_in_file',
   'rm_safe',
+  'git_fetch',
   'git_pull',
+  'git_switch',
   'docker_compose_up',
   'docker_compose_down',
   'docker_compose_stop',
   'docker_compose_restart',
+  'docker_exec',
   'docker_pull',
   'docker_cp',
   'docker_stop',
   'docker_rm',
   'docker_start',
+  'docker_restart',
   'docker_rmi',
   'docker_commit',
   'docker_load',
@@ -24,7 +33,16 @@ const WRITE_TOOLS = [
   'systemctl_restart',
   'systemctl_start',
   'systemctl_stop',
-  'firewall_cmd'
+  'firewall_cmd',
+  'kill_process',
+  'chmod',
+  'chown',
+  'ln',
+  'tar_create',
+  'tar_extract',
+  'zip',
+  'unzip',
+  'curl_http'
 ];
 
 const DEFAULT_BLACKLIST = [
@@ -97,6 +115,20 @@ export class ToolHandlers {
       throw new Error(`${fieldName} must be a single token without spaces.`);
     }
     this.validateShellFragment(value, fieldName);
+  }
+
+  private shellEscapeList(values: string[]): string {
+    return values.map((value) => this.shellEscape(value)).join(' ');
+  }
+
+  private validateTokenArray(values: string[] | undefined, fieldName: string) {
+    for (const [index, value] of (values || []).entries()) {
+      this.validateShellToken(value, `${fieldName}[${index}]`);
+    }
+  }
+
+  private escapePerlEnvBase64(value: string): string {
+    return Buffer.from(value).toString('base64');
   }
 
   private ensureNoShellControl(value: string, errorMessage: string) {
@@ -196,9 +228,23 @@ export class ToolHandlers {
     if (name === 'execute_command') {
       this.validateSingleCommand(params.command);
     }
-    if (name === 'netstat' && Array.isArray(params.args)) {
+    if ((name === 'netstat' || name === 'ss') && Array.isArray(params.args)) {
+      this.validateTokenArray(params.args, `${name}.args`);
+    }
+    if (name === 'docker_exec' && Array.isArray(params.args)) {
       for (const [index, arg] of params.args.entries()) {
-        this.validateShellToken(arg, `netstat.args[${index}]`);
+        this.validateShellFragment(arg, `docker_exec.args[${index}]`);
+      }
+    }
+    if ((name === 'tar_create' || name === 'zip') && Array.isArray(params.sourcePaths)) {
+      if (params.sourcePaths.length === 0) {
+        throw new Error(`${name}.sourcePaths must contain at least one path.`);
+      }
+    }
+    if (name === 'curl_http') {
+      this.validateShellToken(String(params.method || 'GET').toUpperCase(), 'curl_http.method');
+      for (const [index, header] of (params.headers || []).entries()) {
+        this.validateShellFragment(header, `curl_http.headers[${index}]`);
       }
     }
     const command = this.getExecutableCommand(name, params);
@@ -220,7 +266,19 @@ export class ToolHandlers {
       case 'edit_text_file':
         const edB64 = Buffer.from(params.content).toString('base64');
         return `printf '%s' ${this.shellEscape(edB64)} | base64 -d > ${this.shellEscape(params.filePath)}`;
+      case 'append_text_file':
+        const appendB64 = Buffer.from(params.content).toString('base64');
+        return `printf '%s' ${this.shellEscape(appendB64)} | base64 -d >> ${this.shellEscape(params.filePath)}`;
       case 'touch': return `touch ${this.shellEscape(params.filePath)}`;
+      case 'mkdir': return `mkdir ${params.parents ? '-p ' : ''}${this.shellEscape(params.path)}`;
+      case 'mv': return `mv ${params.force ? '-f ' : ''}${this.shellEscape(params.source)} ${this.shellEscape(params.destination)}`;
+      case 'cp': return `cp ${(params.recursive ? '-r ' : '') + (params.preserve ? '-p ' : '')}${this.shellEscape(params.source)} ${this.shellEscape(params.destination)}`;
+      case 'replace_in_file': {
+        const searchB64 = this.escapePerlEnvBase64(params.search);
+        const replaceB64 = this.escapePerlEnvBase64(params.replace);
+        const replaceFlag = params.replaceAll === false ? '' : 'g';
+        return `SEARCH_B64=${this.shellEscape(searchB64)} REPLACE_B64=${this.shellEscape(replaceB64)} perl -0i -M MIME::Base64 -pe ${this.shellEscape(`BEGIN { $s = decode_base64($ENV{SEARCH_B64}); $r = decode_base64($ENV{REPLACE_B64}); } s/\\Q$s\\E/$r/${replaceFlag}`)} ${this.shellEscape(params.filePath)}`;
+      }
       case 'rm_safe':
         const restricted = ['/', '/etc', '/usr', '/bin', '/var', '/root', '/home'];
         if (restricted.includes(params.path.trim())) throw new Error(`RM_SAFE: Denied for restricted directory.`);
@@ -228,7 +286,18 @@ export class ToolHandlers {
       case 'echo': return `echo ${this.shellEscape(params.text)}`;
       case 'find': return `find ${this.shellEscape(params.path)} -name ${this.shellEscape(params.name)}`;
       case 'git_status': return 'git status';
+      case 'git_fetch': return `git fetch ${params.all ? '--all ' : ''}${params.prune ? '--prune' : ''}`.trim();
       case 'git_pull': return 'git pull --no-edit';
+      case 'git_switch':
+        if (params.create) {
+          return `git switch -c ${this.shellEscape(params.branch)}${params.startPoint ? ` ${this.shellEscape(params.startPoint)}` : ''}`;
+        }
+        if (params.startPoint) {
+          throw new Error(`git_switch.startPoint is only valid when create=true.`);
+        }
+        return `git switch ${this.shellEscape(params.branch)}`;
+      case 'git_branch': return `git branch ${params.all ? '-a ' : ''}${params.verbose ? '-v' : ''}`.trim();
+      case 'git_log': return `git log ${params.oneline === false ? '' : '--oneline '}-n ${params.maxCount || 20}${params.path ? ` -- ${this.shellEscape(params.path)}` : ''}`.trim();
       case 'execute_command': return params.command;
       case 'docker_compose_up': return 'docker-compose up -d';
       case 'docker_compose_down': return 'docker-compose down --remove-orphans';
@@ -237,11 +306,18 @@ export class ToolHandlers {
       case 'docker_compose_restart': return 'docker-compose restart';
       case 'docker_ps': return 'docker ps';
       case 'docker_images': return 'docker images';
+      case 'docker_exec':
+        return `docker exec${params.user ? ` --user ${this.shellEscape(params.user)}` : ''}${params.workdir ? ` --workdir ${this.shellEscape(params.workdir)}` : ''} ${this.shellEscape(params.container)} ${this.shellEscape(params.command)}${params.args?.length ? ` ${this.shellEscapeList(params.args)}` : ''}`;
+      case 'docker_inspect':
+        return `docker inspect${params.format ? ` --format ${this.shellEscape(params.format)}` : ''} ${this.shellEscape(params.target)}`;
+      case 'docker_stats':
+        return `docker stats ${params.noStream === false ? '' : '--no-stream '}${params.container ? this.shellEscape(params.container) : ''}`.trim();
       case 'docker_pull': return `docker pull ${this.shellEscape(params.image)}`;
       case 'docker_cp': return `docker cp ${this.shellEscape(params.source)} ${this.shellEscape(params.destination)}`;
       case 'docker_stop': return `docker stop ${this.shellEscape(params.container)}`;
       case 'docker_rm': return `docker rm ${this.shellEscape(params.container)}`;
       case 'docker_start': return `docker start ${this.shellEscape(params.container)}`;
+      case 'docker_restart': return `docker restart ${this.shellEscape(params.container)}`;
       case 'docker_rmi': return `docker rmi ${this.shellEscape(params.image)}`;
       case 'docker_commit': return `docker commit ${this.shellEscape(params.container)} ${this.shellEscape(params.repository)}`;
       case 'docker_logs': return `docker logs -n ${params.lines || 100} ${this.shellEscape(params.container)}`;
@@ -252,17 +328,50 @@ export class ToolHandlers {
       case 'systemctl_start': return `systemctl start ${this.shellEscape(params.service)}`;
       case 'systemctl_stop': return `systemctl stop ${this.shellEscape(params.service)}`;
       case 'ip_addr': return 'ip addr';
+      case 'journalctl':
+        return `journalctl --no-pager${params.unit ? ` -u ${this.shellEscape(params.unit)}` : ''}${params.priority ? ` -p ${this.shellEscape(params.priority)}` : ''}${params.since ? ` --since ${this.shellEscape(params.since)}` : ''} -n ${params.lines || 100}`;
       case 'firewall_cmd':
         return this.buildFirewallCommand(params);
       case 'netstat':
-        return `netstat ${(params.args && params.args.length > 0) ? params.args.map((arg: string, index: number) => {
-          this.validateShellToken(arg, `netstat.args[${index}]`);
-          return arg;
-        }).join(' ') : '-tuln'}`;
+        return `netstat ${(params.args && params.args.length > 0) ? params.args.join(' ') : '-tuln'}`;
+      case 'ss':
+        return `ss ${(params.args && params.args.length > 0) ? params.args.join(' ') : '-tuln'}`;
+      case 'ping_host':
+        return `ping -c ${params.count || 4} ${this.shellEscape(params.host)}`;
+      case 'traceroute':
+        return `traceroute${params.maxHops ? ` -m ${params.maxHops}` : ''} ${this.shellEscape(params.host)}`;
+      case 'nslookup':
+        return `nslookup ${this.shellEscape(params.host)}${params.server ? ` ${this.shellEscape(params.server)}` : ''}`;
+      case 'dig':
+        return `dig ${this.shellEscape(params.host)}${params.recordType ? ` ${this.shellEscape(params.recordType)}` : ''}${params.server ? ` ${this.shellEscape(`@${params.server}`)}` : ''}`;
+      case 'curl_http': {
+        const method = String(params.method || 'GET').toUpperCase();
+        const headerArgs = (params.headers || []).map((header: string) => ` -H ${this.shellEscape(header)}`).join('');
+        const common = `curl -X ${method}${params.followRedirects ? ' -L' : ''}${params.timeoutSeconds ? ` --max-time ${params.timeoutSeconds}` : ''}${headerArgs} ${this.shellEscape(params.url)}`;
+        if (params.body !== undefined) {
+          const bodyB64 = Buffer.from(params.body).toString('base64');
+          return `printf '%s' ${this.shellEscape(bodyB64)} | base64 -d | ${common} --data-binary @-`;
+        }
+        return common;
+      }
       case 'df_h': return 'df -h';
       case 'du_sh': return `du -sh ${this.shellEscape(params.path)}`;
       case 'nvidia_smi': return 'nvidia-smi';
       case 'ps': return 'ps aux';
+      case 'pgrep': return `pgrep ${params.fullCommand ? '-af ' : '-a '}${this.shellEscape(params.pattern)}`;
+      case 'kill_process': return `kill -s ${this.shellEscape(params.signal || 'TERM')} ${params.pid}`;
+      case 'chmod': return `chmod ${params.recursive ? '-R ' : ''}${this.shellEscape(params.mode)} ${this.shellEscape(params.path)}`;
+      case 'chown': return `chown ${params.recursive ? '-R ' : ''}${this.shellEscape(params.owner)} ${this.shellEscape(params.path)}`;
+      case 'ln': return `ln ${params.symbolic === false ? '' : '-s '}${params.force ? '-f ' : ''}${this.shellEscape(params.target)} ${this.shellEscape(params.linkPath)}`;
+      case 'tar_create':
+        return `tar ${params.gzip ? '-czf' : '-cf'} ${this.shellEscape(params.outputPath)} ${this.shellEscapeList(params.sourcePaths)}`;
+      case 'tar_extract': {
+        return `mkdir -p ${this.shellEscape(params.destination)} && tar ${params.gzip ? '-xzf' : '-xf'} ${this.shellEscape(params.archivePath)} -C ${this.shellEscape(params.destination)}`;
+      }
+      case 'zip':
+        return `zip ${params.recursive === false ? '' : '-r '}${this.shellEscape(params.outputPath)} ${this.shellEscapeList(params.sourcePaths)}`.trim();
+      case 'unzip':
+        return `mkdir -p ${this.shellEscape(params.destination)} && unzip ${params.overwrite ? '-o ' : '-n '}${this.shellEscape(params.archivePath)} -d ${this.shellEscape(params.destination)}`;
       default: return '';
     }
   }

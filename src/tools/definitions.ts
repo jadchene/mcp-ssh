@@ -149,6 +149,31 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({ filePath: { type: 'string' } }, ['filePath'])
   },
   {
+    name: 'mkdir',
+    description: 'Directory creation: Creates a directory. Set parents=true for mkdir -p behavior. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ path: { type: 'string' }, parents: { type: 'boolean' }, ...confirmationParams }, ['path'])
+  },
+  {
+    name: 'mv',
+    description: 'Move or rename a file or directory. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ source: { type: 'string' }, destination: { type: 'string' }, force: { type: 'boolean' }, ...confirmationParams }, ['source', 'destination'])
+  },
+  {
+    name: 'cp',
+    description: 'Copy a file or directory. Set recursive=true for directories. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ source: { type: 'string' }, destination: { type: 'string' }, recursive: { type: 'boolean' }, preserve: { type: 'boolean' }, ...confirmationParams }, ['source', 'destination'])
+  },
+  {
+    name: 'append_text_file',
+    description: 'Append text to a file, creating it if needed. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, content: { type: 'string' }, ...confirmationParams }, ['filePath', 'content'])
+  },
+  {
+    name: 'replace_in_file',
+    description: 'Replace literal text inside a file. Set replaceAll=false to replace only the first occurrence. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' }, replaceAll: { type: 'boolean' }, ...confirmationParams }, ['filePath', 'search', 'replace'])
+  },
+  {
     name: 'rm_safe',
     description: 'File deletion: Removes file or directory. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({ path: { type: 'string' }, recursive: { type: 'boolean' }, ...confirmationParams }, ['path'])
@@ -166,9 +191,29 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams(cwdParam)
   },
   {
+    name: 'git_fetch',
+    description: 'Git fetch: Updates remote tracking refs. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ ...cwdParam, all: { type: 'boolean' }, prune: { type: 'boolean' }, ...confirmationParams })
+  },
+  {
     name: 'git_pull',
     description: 'Git update: Pulls latest changes. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({ ...cwdParam, ...confirmationParams })
+  },
+  {
+    name: 'git_switch',
+    description: 'Git switch: Switches branches, or creates one with create=true. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ ...cwdParam, branch: { type: 'string' }, create: { type: 'boolean' }, startPoint: { type: 'string' }, ...confirmationParams }, ['branch'])
+  },
+  {
+    name: 'git_branch',
+    description: 'Git branch: Lists local or all branches.',
+    inputSchema: baseParams({ ...cwdParam, all: { type: 'boolean' }, verbose: { type: 'boolean' } })
+  },
+  {
+    name: 'git_log',
+    description: 'Git log: Shows recent commit history.',
+    inputSchema: baseParams({ ...cwdParam, maxCount: { type: 'number' }, oneline: { type: 'boolean' }, path: { type: 'string' } })
   },
 
   // --- Docker & Compose (Requirements) ---
@@ -208,6 +253,21 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams(grepParam)
   },
   {
+    name: 'docker_exec',
+    description: 'Run one process inside a running container without shell expansion. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ container: { type: 'string' }, command: { type: 'string' }, args: { type: 'array', items: { type: 'string' } }, user: { type: 'string' }, workdir: { type: 'string' }, ...confirmationParams }, ['container', 'command'])
+  },
+  {
+    name: 'docker_inspect',
+    description: 'Inspect a container, image, volume, or network.',
+    inputSchema: baseParams({ target: { type: 'string' }, format: { type: 'string' } }, ['target'])
+  },
+  {
+    name: 'docker_stats',
+    description: 'Show container resource usage.',
+    inputSchema: baseParams({ container: { type: 'string' }, noStream: { type: 'boolean' } })
+  },
+  {
     name: 'docker_pull',
     description: 'Pull an image from a registry. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({ image: { type: 'string' }, ...confirmationParams }, ['image'])
@@ -230,6 +290,11 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'docker_start',
     description: 'Start one or more stopped containers. REQUIRES CONFIRMATION.',
+    inputSchema: baseParams({ container: { type: 'string' }, ...confirmationParams }, ['container'])
+  },
+  {
+    name: 'docker_restart',
+    description: 'Restart one or more running containers. REQUIRES CONFIRMATION unless the final command is whitelisted.',
     inputSchema: baseParams({ container: { type: 'string' }, ...confirmationParams }, ['container'])
   },
   {
@@ -285,6 +350,11 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams(grepParam)
   },
   {
+    name: 'journalctl',
+    description: 'Read systemd journal logs with optional unit, since, and priority filters.',
+    inputSchema: baseParams({ unit: { type: 'string' }, lines: { type: 'number' }, since: { type: 'string' }, priority: { type: 'string' }, grep: { type: 'string' } })
+  },
+  {
     name: 'firewall_cmd',
     description: 'Structured firewall control. Supports action=list|add-port|remove-port|reload with optional zone, permanent, and listTarget. REQUIRES CONFIRMATION unless the final command is whitelisted.',
     inputSchema: baseParams({
@@ -301,6 +371,36 @@ export const toolDefinitions: Tool[] = [
     description: 'Monitor ports/connections. Use args as an array of individual option tokens, for example ["-t", "-u", "-l", "-n"].',
     inputSchema: baseParams({ args: { type: 'array', items: { type: 'string' } }, ...grepParam })
   },
+  {
+    name: 'ss',
+    description: 'Socket statistics. Use args as an array of individual option tokens, for example ["-t", "-u", "-l", "-n"].',
+    inputSchema: baseParams({ args: { type: 'array', items: { type: 'string' } }, ...grepParam })
+  },
+  {
+    name: 'ping_host',
+    description: 'Ping a host a fixed number of times.',
+    inputSchema: baseParams({ host: { type: 'string' }, count: { type: 'number' } }, ['host'])
+  },
+  {
+    name: 'traceroute',
+    description: 'Trace the network path to a host.',
+    inputSchema: baseParams({ host: { type: 'string' }, maxHops: { type: 'number' } }, ['host'])
+  },
+  {
+    name: 'nslookup',
+    description: 'Resolve hostnames using nslookup.',
+    inputSchema: baseParams({ host: { type: 'string' }, server: { type: 'string' } }, ['host'])
+  },
+  {
+    name: 'dig',
+    description: 'Resolve DNS records using dig.',
+    inputSchema: baseParams({ host: { type: 'string' }, recordType: { type: 'string' }, server: { type: 'string' } }, ['host'])
+  },
+  {
+    name: 'curl_http',
+    description: 'Perform an HTTP request with structured method, URL, headers, and optional body. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ method: { type: 'string' }, url: { type: 'string' }, headers: { type: 'array', items: { type: 'string' } }, body: { type: 'string' }, timeoutSeconds: { type: 'number' }, followRedirects: { type: 'boolean' }, ...confirmationParams }, ['method', 'url'])
+  },
 
   // --- Stats & Process (Requirements) ---
   {
@@ -314,6 +414,16 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams(grepParam)
   },
   {
+    name: 'pgrep',
+    description: 'Find process IDs by name or full command pattern.',
+    inputSchema: baseParams({ pattern: { type: 'string' }, fullCommand: { type: 'boolean' } }, ['pattern'])
+  },
+  {
+    name: 'kill_process',
+    description: 'Send a signal to a process ID. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ pid: { type: 'number' }, signal: { type: 'string' }, ...confirmationParams }, ['pid'])
+  },
+  {
     name: 'df_h',
     description: 'System disk usage.',
     inputSchema: baseParams(grepParam)
@@ -322,5 +432,40 @@ export const toolDefinitions: Tool[] = [
     name: 'du_sh',
     description: 'Directory size estimation.',
     inputSchema: baseParams({ path: { type: 'string' }, ...grepParam }, ['path'])
+  },
+  {
+    name: 'chmod',
+    description: 'Change file mode bits. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ mode: { type: 'string' }, path: { type: 'string' }, recursive: { type: 'boolean' }, ...confirmationParams }, ['mode', 'path'])
+  },
+  {
+    name: 'chown',
+    description: 'Change file owner and group. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ owner: { type: 'string' }, path: { type: 'string' }, recursive: { type: 'boolean' }, ...confirmationParams }, ['owner', 'path'])
+  },
+  {
+    name: 'ln',
+    description: 'Create a link. Uses symbolic=true by default for symlinks. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ target: { type: 'string' }, linkPath: { type: 'string' }, symbolic: { type: 'boolean' }, force: { type: 'boolean' }, ...confirmationParams }, ['target', 'linkPath'])
+  },
+  {
+    name: 'tar_create',
+    description: 'Create a tar archive from one or more source paths. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ sourcePaths: { type: 'array', items: { type: 'string' } }, outputPath: { type: 'string' }, gzip: { type: 'boolean' }, ...confirmationParams }, ['sourcePaths', 'outputPath'])
+  },
+  {
+    name: 'tar_extract',
+    description: 'Extract a tar archive into a destination directory. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ archivePath: { type: 'string' }, destination: { type: 'string' }, gzip: { type: 'boolean' }, ...confirmationParams }, ['archivePath', 'destination'])
+  },
+  {
+    name: 'zip',
+    description: 'Create a zip archive from one or more source paths. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ sourcePaths: { type: 'array', items: { type: 'string' } }, outputPath: { type: 'string' }, recursive: { type: 'boolean' }, ...confirmationParams }, ['sourcePaths', 'outputPath'])
+  },
+  {
+    name: 'unzip',
+    description: 'Extract a zip archive into a destination directory. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ archivePath: { type: 'string' }, destination: { type: 'string' }, overwrite: { type: 'boolean' }, ...confirmationParams }, ['archivePath', 'destination'])
   }
 ];

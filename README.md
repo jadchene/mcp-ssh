@@ -177,7 +177,7 @@ args = ["--config", "./config.json"]
 
 ---
 
-## 🛠️ Integrated Toolset (50 Tools)
+## 🛠️ Integrated Toolset (79 Tools)
 
 ### Discovery & Core (8)
 * `list_servers`
@@ -193,7 +193,7 @@ args = ["--config", "./config.json"]
 * `execute_command` [Auth Required, single command only]
 * `echo`
 
-### File Management (10)
+### File Management (15)
 * `upload_file` [Auth Required]
 * `download_file`
 * `ll`
@@ -202,14 +202,23 @@ args = ["--config", "./config.json"]
 * `grep`
 * `edit_text_file` [Auth Required]
 * `touch`
+* `mkdir` [Auth Required]
+* `mv` [Auth Required]
+* `cp` [Auth Required]
+* `append_text_file` [Auth Required]
+* `replace_in_file` [Auth Required]
 * `rm_safe` [Auth Required]
 * `find`
 
-### Git (2)
+### Git (6)
 * `git_status`
+* `git_fetch` [Auth Required]
 * `git_pull` [Auth Required]
+* `git_switch` [Auth Required]
+* `git_branch`
+* `git_log`
 
-### Docker & Compose (17)
+### Docker & Compose (21)
 * `docker_compose_up` [Auth Required]
 * `docker_compose_down` [Auth Required]
 * `docker_compose_stop` [Auth Required]
@@ -217,33 +226,53 @@ args = ["--config", "./config.json"]
 * `docker_compose_restart` [Auth Required]
 * `docker_ps`
 * `docker_images`
+* `docker_exec` [Auth Required]
+* `docker_inspect`
+* `docker_stats`
 * `docker_pull` [Auth Required]
 * `docker_cp` [Auth Required]
 * `docker_stop` [Auth Required]
 * `docker_rm` [Auth Required]
 * `docker_start` [Auth Required]
+* `docker_restart` [Auth Required]
 * `docker_rmi` [Auth Required]
 * `docker_commit` [Auth Required]
 * `docker_logs`
 * `docker_load` [Auth Required]
 * `docker_save` [Auth Required]
 
-### Service & Network (7)
+### Service & Network (14)
 * `systemctl_status`
 * `systemctl_restart` [Auth Required]
 * `systemctl_start` [Auth Required]
 * `systemctl_stop` [Auth Required]
 * `ip_addr`
+* `journalctl`
 * `firewall_cmd` [Auth Required, structured actions only]
 * `netstat` [uses `args: string[]`]
+* `ss` [uses `args: string[]`]
+* `ping_host`
+* `traceroute`
+* `nslookup`
+* `dig`
+* `curl_http` [Auth Required]
 
-### Stats & Process (4)
+### Stats & Process (13)
 * `nvidia_smi`
 * `ps`
+* `pgrep`
+* `kill_process` [Auth Required]
 * `df_h`
 * `du_sh`
+* `chmod` [Auth Required]
+* `chown` [Auth Required]
+* `ln` [Auth Required]
+* `tar_create` [Auth Required]
+* `tar_extract` [Auth Required]
+* `zip` [Auth Required]
+* `unzip` [Auth Required]
 
-Total: 50 tools.
+Total: 79 tools.
 
 ---
 
@@ -260,6 +289,8 @@ If a high-risk tool's final command string matches `commandWhitelist`, the serve
 `execute_command` is limited to one shell command segment. The server rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. For built-in tools, user-provided parameters are shell-escaped before execution to reduce command injection risk.
 
 `firewall_cmd` no longer accepts a free-form shell fragment. Use structured fields such as `action`, `port`, `zone`, `permanent`, and `listTarget`. `netstat` now accepts `args: string[]` so each option is validated as an individual token.
+
+Use `mkdir` for directory creation instead of `execute_command "mkdir ..."`. Set `parents: true` when you need `mkdir -p` behavior.
 
 ---
 

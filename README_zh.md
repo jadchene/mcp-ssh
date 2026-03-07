@@ -177,7 +177,7 @@ args = ["--config", "./config.json"]
 
 ---
 
-## 🛠️ 集成工具集 (50 个工具)
+## 🛠️ 集成工具集 (79 个工具)
 
 ### 发现与核心 (8)
 * `list_servers`
@@ -193,7 +193,7 @@ args = ["--config", "./config.json"]
 * `execute_command` [需确认，仅允许单条命令]
 * `echo`
 
-### 文件管理 (10)
+### 文件管理 (15)
 * `upload_file` [需确认]
 * `download_file`
 * `ll`
@@ -202,14 +202,23 @@ args = ["--config", "./config.json"]
 * `grep`
 * `edit_text_file` [需确认]
 * `touch`
+* `mkdir` [需确认]
+* `mv` [需确认]
+* `cp` [需确认]
+* `append_text_file` [需确认]
+* `replace_in_file` [需确认]
 * `rm_safe` [需确认]
 * `find`
 
-### Git (2)
+### Git (6)
 * `git_status`
+* `git_fetch` [需确认]
 * `git_pull` [需确认]
+* `git_switch` [需确认]
+* `git_branch`
+* `git_log`
 
-### Docker 与 Compose (17)
+### Docker 与 Compose (21)
 * `docker_compose_up` [需确认]
 * `docker_compose_down` [需确认]
 * `docker_compose_stop` [需确认]
@@ -217,33 +226,53 @@ args = ["--config", "./config.json"]
 * `docker_compose_restart` [需确认]
 * `docker_ps`
 * `docker_images`
+* `docker_exec` [需确认]
+* `docker_inspect`
+* `docker_stats`
 * `docker_pull` [需确认]
 * `docker_cp` [需确认]
 * `docker_stop` [需确认]
 * `docker_rm` [需确认]
 * `docker_start` [需确认]
+* `docker_restart` [需确认]
 * `docker_rmi` [需确认]
 * `docker_commit` [需确认]
 * `docker_logs`
 * `docker_load` [需确认]
 * `docker_save` [需确认]
 
-### 系统服务与网络 (7)
+### 系统服务与网络 (14)
 * `systemctl_status`
 * `systemctl_restart` [需确认]
 * `systemctl_start` [需确认]
 * `systemctl_stop` [需确认]
 * `ip_addr`
+* `journalctl`
 * `firewall_cmd` [需确认，仅支持结构化常用动作]
 * `netstat` [使用 `args: string[]`]
+* `ss` [使用 `args: string[]`]
+* `ping_host`
+* `traceroute`
+* `nslookup`
+* `dig`
+* `curl_http` [需确认]
 
-### 统计与进程 (4)
+### 统计与进程 (13)
 * `nvidia_smi`
 * `ps`
+* `pgrep`
+* `kill_process` [需确认]
 * `df_h`
 * `du_sh`
+* `chmod` [需确认]
+* `chown` [需确认]
+* `ln` [需确认]
+* `tar_create` [需确认]
+* `tar_extract` [需确认]
+* `zip` [需确认]
+* `unzip` [需确认]
 
-总计：50 个工具。
+总计：79 个工具。
 
 ---
 
@@ -260,6 +289,8 @@ args = ["--config", "./config.json"]
 `execute_command` 仅允许一个 shell 命令段。服务器会拒绝 `&&`、`||`、`;`、管道、重定向、子 shell 语法以及多行输入。对于内置 tool，所有用户传入参数会在执行前做 shell 转义，以降低命令注入风险。
 
 `firewall_cmd` 不再接受自由拼接的 shell 参数片段，改为使用 `action`、`port`、`zone`、`permanent`、`listTarget` 这些结构化字段。`netstat` 则改为 `args: string[]`，服务端会按独立参数逐项校验。
+
+创建目录请优先使用 `mkdir`，不要再用 `execute_command "mkdir ..."`。需要 `mkdir -p` 行为时，传 `parents: true`。
 
 ---
 

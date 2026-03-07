@@ -230,6 +230,126 @@ test('built-in write tool should shell-escape dangerous parameter content', asyn
   assert.equal(capturedCommand, "docker rm 'demo && reboot'");
 });
 
+test('mkdir should build mkdir -p command and support whitelist', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: ["^mkdir -p '/data/releases'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'created',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('mkdir', {
+      serverAlias: 'test-server',
+      path: '/data/releases',
+      parents: true
+    })
+  );
+
+  assert.equal(result, 'created');
+  assert.equal(capturedCommand, "mkdir -p '/data/releases'");
+});
+
+test('append_text_file should append decoded content to the target file', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: [".*>> '/tmp/app.log'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'appended',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('append_text_file', {
+      serverAlias: 'test-server',
+      filePath: '/tmp/app.log',
+      content: 'hello'
+    })
+  );
+
+  assert.equal(result, 'appended');
+  assert.match(capturedCommand, /base64 -d >> '\/tmp\/app\.log'$/);
+});
+
+test('docker_exec should build a non-shell exec command with escaped args', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: [".*docker exec.*'/bin/ls'.*'-l'.*'/data folder'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'exec-ok',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_exec', {
+      serverAlias: 'test-server',
+      container: 'api',
+      command: '/bin/ls',
+      args: ['-l', '/data folder']
+    })
+  );
+
+  assert.equal(result, 'exec-ok');
+  assert.equal(capturedCommand, "docker exec 'api' '/bin/ls' '-l' '/data folder'");
+});
+
+test('curl_http should build a structured POST request with body piping', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: ['.*curl -X POST.*--data-binary @-$'] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'http-ok',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('curl_http', {
+      serverAlias: 'test-server',
+      method: 'POST',
+      url: 'https://example.com/api',
+      headers: ['Content-Type: application/json'],
+      body: '{"ok":true}'
+    })
+  );
+
+  assert.equal(result, 'http-ok');
+  assert.match(capturedCommand, /curl -X POST/);
+  assert.match(capturedCommand, /--data-binary @-$/);
+});
+
 test('firewall_cmd should build structured list command and support whitelist', async () => {
   const handlers = new ToolHandlers(
     createConfigManager({ whitelist: ['^firewall-cmd --permanent --list-ports$'] })
@@ -320,6 +440,25 @@ test('read-only server should still reject whitelisted built-in write tools', as
       handlers.handleTool('docker_compose_restart', {
         serverAlias: 'test-server',
         cwd: '/srv/app'
+      }),
+    /read-only/
+  );
+});
+
+test('read-only server should reject mkdir even when it is whitelisted', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({
+      readOnly: true,
+      whitelist: ["^mkdir -p '/data/releases'$"]
+    })
+  );
+
+  await assert.rejects(
+    () =>
+      handlers.handleTool('mkdir', {
+        serverAlias: 'test-server',
+        path: '/data/releases',
+        parents: true
       }),
     /read-only/
   );
