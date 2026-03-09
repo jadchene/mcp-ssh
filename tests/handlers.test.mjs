@@ -427,6 +427,98 @@ test('grep parameter should reject shell substitution payloads', async () => {
   );
 });
 
+test('head should build a bounded file preview command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'line1\nline2',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('head', {
+      serverAlias: 'test-server',
+      filePath: '/tmp/app.log',
+      lines: 2
+    })
+  );
+
+  assert.equal(result, 'line1\nline2');
+  assert.equal(capturedCommand, "head -n 2 '/tmp/app.log'");
+});
+
+test('sed should build an inclusive line range command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'range-output',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('sed', {
+      serverAlias: 'test-server',
+      filePath: '/tmp/app.log',
+      startLine: 100,
+      endLine: 140
+    })
+  );
+
+  assert.equal(result, 'range-output');
+  assert.equal(capturedCommand, "sed -n '100,140p' '/tmp/app.log'");
+});
+
+test('sed should reject reversed line ranges', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  await assert.rejects(
+    () =>
+      handlers.handleTool('sed', {
+        serverAlias: 'test-server',
+        filePath: '/tmp/app.log',
+        startLine: 140,
+        endLine: 100
+      }),
+    /greater than or equal/
+  );
+});
+
+test('head should reject non-positive line counts', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  await assert.rejects(
+    () =>
+      handlers.handleTool('head', {
+        serverAlias: 'test-server',
+        filePath: '/tmp/app.log',
+        lines: 0
+      }),
+    /positive integer/
+  );
+});
+
 test('read-only server should still reject whitelisted built-in write tools', async () => {
   const handlers = new ToolHandlers(
     createConfigManager({

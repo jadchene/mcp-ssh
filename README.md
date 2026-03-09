@@ -193,12 +193,14 @@ args = ["--config", "./config.json"]
 * `execute_command` [Auth Required, single command only]
 * `echo`
 
-### File Management (15)
+### File Management (17)
 * `upload_file` [Auth Required]
 * `download_file`
 * `ll`
 * `cat`
+* `head`
 * `tail`
+* `sed`
 * `grep`
 * `edit_text_file` [Auth Required]
 * `touch`
@@ -272,7 +274,7 @@ args = ["--config", "./config.json"]
 * `zip` [Auth Required]
 * `unzip` [Auth Required]
 
-Total: 79 tools.
+Total: 81 tools.
 
 ---
 

@@ -127,6 +127,15 @@ export class ToolHandlers {
     }
   }
 
+  /**
+   * Validate positive line counts for text inspection helpers.
+   */
+  private validatePositiveInteger(value: any, fieldName: string) {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(`${fieldName} must be a positive integer.`);
+    }
+  }
+
   private escapePerlEnvBase64(value: string): string {
     return Buffer.from(value).toString('base64');
   }
@@ -231,6 +240,16 @@ export class ToolHandlers {
     if ((name === 'netstat' || name === 'ss') && Array.isArray(params.args)) {
       this.validateTokenArray(params.args, `${name}.args`);
     }
+    if ((name === 'head' || name === 'tail') && params.lines !== undefined) {
+      this.validatePositiveInteger(params.lines, `${name}.lines`);
+    }
+    if (name === 'sed') {
+      this.validatePositiveInteger(params.startLine, 'sed.startLine');
+      this.validatePositiveInteger(params.endLine, 'sed.endLine');
+      if (params.endLine < params.startLine) {
+        throw new Error(`sed.endLine must be greater than or equal to sed.startLine.`);
+      }
+    }
     if (name === 'docker_exec' && Array.isArray(params.args)) {
       for (const [index, arg] of params.args.entries()) {
         this.validateShellFragment(arg, `docker_exec.args[${index}]`);
@@ -261,7 +280,9 @@ export class ToolHandlers {
       case 'cd': return `cd ${this.shellEscape(params.path)}`;
       case 'll': return 'ls -l';
       case 'cat': return `cat ${this.shellEscape(params.filePath)}`;
+      case 'head': return `head -n ${params.lines || 40} ${this.shellEscape(params.filePath)}`;
       case 'tail': return `tail -n ${params.lines || 50} ${this.shellEscape(params.filePath)}`;
+      case 'sed': return `sed -n '${params.startLine},${params.endLine}p' ${this.shellEscape(params.filePath)}`;
       case 'grep': return `grep ${params.ignoreCase ? '-inE' : '-nE'} ${this.shellEscape(params.pattern)} ${this.shellEscape(params.filePath)}`;
       case 'edit_text_file':
         const edB64 = Buffer.from(params.content).toString('base64');

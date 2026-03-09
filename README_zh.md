@@ -193,12 +193,14 @@ args = ["--config", "./config.json"]
 * `execute_command` [需确认，仅允许单条命令]
 * `echo`
 
-### 文件管理 (15)
+### 文件管理 (17)
 * `upload_file` [需确认]
 * `download_file`
 * `ll`
 * `cat`
+* `head`
 * `tail`
+* `sed`
 * `grep`
 * `edit_text_file` [需确认]
 * `touch`
@@ -272,7 +274,7 @@ args = ["--config", "./config.json"]
 * `zip` [需确认]
 * `unzip` [需确认]
 
-总计：79 个工具。
+总计：81 个工具。
 
 ---
 

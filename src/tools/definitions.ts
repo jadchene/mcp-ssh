@@ -125,9 +125,24 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({ filePath: { type: 'string' }, ...grepParam }, ['filePath'])
   },
   {
+    name: 'head',
+    description: 'File preview: Reads the first N lines of a file.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['filePath'])
+  },
+  {
     name: 'tail',
     description: 'Log inspection: Reads last N lines of a file.',
     inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['filePath'])
+  },
+  {
+    name: 'sed',
+    description: 'Line range reading: Reads an inclusive line range from a text file.',
+    inputSchema: baseParams({
+      filePath: { type: 'string' },
+      startLine: { type: 'number' },
+      endLine: { type: 'number' },
+      ...grepParam
+    }, ['filePath', 'startLine', 'endLine'])
   },
   {
     name: 'grep',
