@@ -49,6 +49,36 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams()
   },
   {
+    name: 'hostname',
+    description: 'Show the current host name.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
+    name: 'id',
+    description: 'Show current user identity and group information.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
+    name: 'uname',
+    description: 'Show kernel and operating system information.',
+    inputSchema: baseParams({ all: { type: 'boolean' }, ...grepParam })
+  },
+  {
+    name: 'uptime',
+    description: 'Show system uptime and load averages.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
+    name: 'free',
+    description: 'Show memory usage in megabytes.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
+    name: 'env',
+    description: 'Show environment variables visible to the remote session.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
     name: 'pwd',
     description: 'Current path: Returns the absolute path of the current directory on remote.',
     inputSchema: baseParams(cwdParam)
@@ -117,7 +147,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'll',
     description: 'Directory listing: Lists files in a directory with detailed information.',
-    inputSchema: baseParams({ ...cwdParam, ...grepParam })
+    inputSchema: baseParams({ ...cwdParam, all: { type: 'boolean' }, ...grepParam })
   },
   {
     name: 'cat',
@@ -148,6 +178,20 @@ export const toolDefinitions: Tool[] = [
     name: 'grep',
     description: 'Pattern search: Search for a regex pattern in a file.',
     inputSchema: baseParams({ filePath: { type: 'string' }, pattern: { type: 'string' }, ignoreCase: { type: 'boolean' } }, ['filePath', 'pattern'])
+  },
+  {
+    name: 'grep_r',
+    description: 'Recursive pattern search: Search for a regex pattern across files under a directory tree.',
+    inputSchema: baseParams({
+      path: { type: 'string' },
+      pattern: { type: 'string' },
+      ignoreCase: { type: 'boolean' },
+      beforeContext: { type: 'number' },
+      afterContext: { type: 'number' },
+      context: { type: 'number' },
+      include: { type: 'array', items: { type: 'string' } },
+      excludeDir: { type: 'array', items: { type: 'string' } }
+    }, ['path', 'pattern'])
   },
   {
     name: 'edit_text_file',
@@ -196,7 +240,14 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'find',
     description: 'Search for files in a directory hierarchy.',
-    inputSchema: baseParams({ path: { type: 'string' }, name: { type: 'string' }, ...grepParam }, ['path'])
+    inputSchema: baseParams({
+      path: { type: 'string' },
+      name: { type: 'string' },
+      type: { type: 'string', enum: ['f', 'd', 'l'] },
+      maxDepth: { type: 'number' },
+      pathPattern: { type: 'string' },
+      ...grepParam
+    }, ['path'])
   },
 
   // --- Git ---
@@ -256,6 +307,33 @@ export const toolDefinitions: Tool[] = [
     name: 'docker_compose_restart',
     description: 'Restart compose stack. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({ ...cwdParam, ...confirmationParams }, ['cwd'])
+  },
+  {
+    name: 'docker_compose_pull',
+    description: 'Pull images defined by the compose stack. REQUIRES CONFIRMATION.',
+    inputSchema: baseParams({ ...cwdParam, service: { type: 'string' }, ...confirmationParams }, ['cwd'])
+  },
+  {
+    name: 'docker_compose_ps',
+    description: 'List compose services and their current state.',
+    inputSchema: baseParams({ ...cwdParam, service: { type: 'string' }, ...grepParam }, ['cwd'])
+  },
+  {
+    name: 'docker_compose_config',
+    description: 'Render the fully resolved compose configuration for inspection.',
+    inputSchema: baseParams({ ...cwdParam, ...grepParam }, ['cwd'])
+  },
+  {
+    name: 'docker_compose_exec',
+    description: 'Run one process inside a compose service container without shell expansion. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({
+      ...cwdParam,
+      service: { type: 'string' },
+      command: { type: 'string' },
+      args: { type: 'array', items: { type: 'string' } },
+      user: { type: 'string' },
+      ...confirmationParams
+    }, ['cwd', 'service', 'command'])
   },
   {
     name: 'docker_ps',
@@ -337,6 +415,20 @@ export const toolDefinitions: Tool[] = [
     description: 'Save one or more images to a tar archive. REQUIRES CONFIRMATION.',
     inputSchema: baseParams({ image: { type: 'string' }, path: { type: 'string' }, ...confirmationParams }, ['image', 'path'])
   },
+  {
+    name: 'docker_build',
+    description: 'Build a docker image from a build context. Supports options such as tag, dockerfile, build args, no-cache, and fixed host networking. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({
+      ...cwdParam,
+      context: { type: 'string' },
+      tag: { type: 'string' },
+      dockerfile: { type: 'string' },
+      buildArgs: { type: 'array', items: { type: 'string' } },
+      noCache: { type: 'boolean' },
+      networkHost: { type: 'boolean' },
+      ...confirmationParams
+    }, ['context'])
+  },
 
   // --- Service & Network (Requirements) ---
   {
@@ -360,14 +452,42 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({ service: { type: 'string' }, ...confirmationParams }, ['service'])
   },
   {
+    name: 'systemctl_enable',
+    description: 'Enable system service at boot. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ service: { type: 'string' }, ...confirmationParams }, ['service'])
+  },
+  {
+    name: 'systemctl_disable',
+    description: 'Disable system service at boot. REQUIRES CONFIRMATION unless the final command is whitelisted.',
+    inputSchema: baseParams({ service: { type: 'string' }, ...confirmationParams }, ['service'])
+  },
+  {
     name: 'ip_addr',
     description: 'Show network interface info.',
     inputSchema: baseParams(grepParam)
   },
   {
+    name: 'ip_route',
+    description: 'Show routing table information.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
+    name: 'mount',
+    description: 'Show mounted filesystems.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
     name: 'journalctl',
-    description: 'Read systemd journal logs with optional unit, since, and priority filters.',
-    inputSchema: baseParams({ unit: { type: 'string' }, lines: { type: 'number' }, since: { type: 'string' }, priority: { type: 'string' }, grep: { type: 'string' } })
+    description: 'Read systemd journal logs with optional unit, since, until, priority, and follow filters.',
+    inputSchema: baseParams({
+      unit: { type: 'string' },
+      lines: { type: 'number' },
+      since: { type: 'string' },
+      until: { type: 'string' },
+      priority: { type: 'string' },
+      follow: { type: 'boolean' },
+      grep: { type: 'string' }
+    })
   },
   {
     name: 'firewall_cmd',
@@ -444,9 +564,39 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams(grepParam)
   },
   {
+    name: 'df_inode',
+    description: 'Filesystem inode usage.',
+    inputSchema: baseParams(grepParam)
+  },
+  {
     name: 'du_sh',
     description: 'Directory size estimation.',
     inputSchema: baseParams({ path: { type: 'string' }, ...grepParam }, ['path'])
+  },
+  {
+    name: 'which',
+    description: 'Resolve the executable path of a command available on the remote host.',
+    inputSchema: baseParams({ commandName: { type: 'string' }, ...grepParam }, ['commandName'])
+  },
+  {
+    name: 'lsof',
+    description: 'Inspect open files, ports, and process-file relationships.',
+    inputSchema: baseParams({
+      path: { type: 'string' },
+      process: { type: 'string' },
+      port: { type: 'number' },
+      ...grepParam
+    })
+  },
+  {
+    name: 'file',
+    description: 'Detect file type and encoding information.',
+    inputSchema: baseParams({ path: { type: 'string' }, ...grepParam }, ['path'])
+  },
+  {
+    name: 'stat',
+    description: 'File metadata inspection: Shows size, timestamps, mode bits, and related file details.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, ...grepParam }, ['filePath'])
   },
   {
     name: 'chmod',

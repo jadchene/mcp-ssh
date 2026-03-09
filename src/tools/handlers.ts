@@ -19,8 +19,11 @@ const WRITE_TOOLS = [
   'docker_compose_down',
   'docker_compose_stop',
   'docker_compose_restart',
+  'docker_compose_pull',
+  'docker_compose_exec',
   'docker_exec',
   'docker_pull',
+  'docker_build',
   'docker_cp',
   'docker_stop',
   'docker_rm',
@@ -33,6 +36,8 @@ const WRITE_TOOLS = [
   'systemctl_restart',
   'systemctl_start',
   'systemctl_stop',
+  'systemctl_enable',
+  'systemctl_disable',
   'firewall_cmd',
   'kill_process',
   'chmod',
@@ -243,6 +248,9 @@ export class ToolHandlers {
     if ((name === 'head' || name === 'tail') && params.lines !== undefined) {
       this.validatePositiveInteger(params.lines, `${name}.lines`);
     }
+    if (name === 'find' && params.maxDepth !== undefined) {
+      this.validatePositiveInteger(params.maxDepth, 'find.maxDepth');
+    }
     if (name === 'sed') {
       this.validatePositiveInteger(params.startLine, 'sed.startLine');
       this.validatePositiveInteger(params.endLine, 'sed.endLine');
@@ -253,6 +261,19 @@ export class ToolHandlers {
     if (name === 'docker_exec' && Array.isArray(params.args)) {
       for (const [index, arg] of params.args.entries()) {
         this.validateShellFragment(arg, `docker_exec.args[${index}]`);
+      }
+    }
+    if (name === 'docker_compose_exec' && Array.isArray(params.args)) {
+      for (const [index, arg] of params.args.entries()) {
+        this.validateShellFragment(arg, `docker_compose_exec.args[${index}]`);
+      }
+    }
+    if (name === 'docker_build') {
+      if (params.tag) {
+        this.validateShellToken(params.tag, 'docker_build.tag');
+      }
+      for (const [index, buildArg] of (params.buildArgs || []).entries()) {
+        this.validateShellFragment(buildArg, `docker_build.buildArgs[${index}]`);
       }
     }
     if ((name === 'tar_create' || name === 'zip') && Array.isArray(params.sourcePaths)) {
@@ -275,15 +296,29 @@ export class ToolHandlers {
   private getCommandForTool(name: string, params: any): string {
     switch (name) {
       case 'get_system_info': return 'echo "USER: $(whoami)"; echo "UPTIME: $(uptime)"; echo "KERNEL: $(uname -a)"; echo "MEMORY:"; free -m';
+      case 'hostname': return 'hostname';
+      case 'id': return 'id';
+      case 'uname': return `uname ${params.all === false ? '-s' : '-a'}`;
+      case 'uptime': return 'uptime';
+      case 'free': return 'free -m';
+      case 'env': return 'env';
       case 'check_dependencies': return `for cmd in ${params.commands.map((cmd: string) => this.shellEscape(cmd)).join(' ')}; do which "$cmd" || echo "$cmd not found"; done`;
       case 'pwd': return 'pwd';
       case 'cd': return `cd ${this.shellEscape(params.path)}`;
-      case 'll': return 'ls -l';
+      case 'll': return `ls -l${params.all ? 'a' : ''}`;
       case 'cat': return `cat ${this.shellEscape(params.filePath)}`;
       case 'head': return `head -n ${params.lines || 40} ${this.shellEscape(params.filePath)}`;
       case 'tail': return `tail -n ${params.lines || 50} ${this.shellEscape(params.filePath)}`;
       case 'sed': return `sed -n '${params.startLine},${params.endLine}p' ${this.shellEscape(params.filePath)}`;
       case 'grep': return `grep ${params.ignoreCase ? '-inE' : '-nE'} ${this.shellEscape(params.pattern)} ${this.shellEscape(params.filePath)}`;
+      case 'grep_r': {
+        const includeArgs = (params.include || []).map((value: string) => ` --include ${this.shellEscape(value)}`).join('');
+        const excludeDirArgs = (params.excludeDir || []).map((value: string) => ` --exclude-dir ${this.shellEscape(value)}`).join('');
+        const contextArgs = params.context !== undefined
+          ? ` -C ${params.context}`
+          : `${params.beforeContext !== undefined ? ` -B ${params.beforeContext}` : ''}${params.afterContext !== undefined ? ` -A ${params.afterContext}` : ''}`;
+        return `grep ${params.ignoreCase ? '-RinE' : '-RnE'}${contextArgs}${includeArgs}${excludeDirArgs} ${this.shellEscape(params.pattern)} ${this.shellEscape(params.path)}`;
+      }
       case 'edit_text_file':
         const edB64 = Buffer.from(params.content).toString('base64');
         return `printf '%s' ${this.shellEscape(edB64)} | base64 -d > ${this.shellEscape(params.filePath)}`;
@@ -305,7 +340,8 @@ export class ToolHandlers {
         if (restricted.includes(params.path.trim())) throw new Error(`RM_SAFE: Denied for restricted directory.`);
         return `rm ${params.recursive ? '-rf' : '-f'} ${this.shellEscape(params.path)}`;
       case 'echo': return `echo ${this.shellEscape(params.text)}`;
-      case 'find': return `find ${this.shellEscape(params.path)} -name ${this.shellEscape(params.name)}`;
+      case 'find':
+        return `find ${this.shellEscape(params.path)}${params.maxDepth !== undefined ? ` -maxdepth ${params.maxDepth}` : ''}${params.type ? ` -type ${params.type}` : ''}${params.name ? ` -name ${this.shellEscape(params.name)}` : ''}${params.pathPattern ? ` -path ${this.shellEscape(params.pathPattern)}` : ''}`;
       case 'git_status': return 'git status';
       case 'git_fetch': return `git fetch ${params.all ? '--all ' : ''}${params.prune ? '--prune' : ''}`.trim();
       case 'git_pull': return 'git pull --no-edit';
@@ -325,6 +361,11 @@ export class ToolHandlers {
       case 'docker_compose_stop': return 'docker-compose stop';
       case 'docker_compose_logs': return `docker-compose logs -n ${params.lines || 100}`;
       case 'docker_compose_restart': return 'docker-compose restart';
+      case 'docker_compose_pull': return `docker-compose pull${params.service ? ` ${this.shellEscape(params.service)}` : ''}`;
+      case 'docker_compose_ps': return `docker-compose ps${params.service ? ` ${this.shellEscape(params.service)}` : ''}`;
+      case 'docker_compose_config': return 'docker-compose config';
+      case 'docker_compose_exec':
+        return `docker-compose exec -T${params.user ? ` --user ${this.shellEscape(params.user)}` : ''} ${this.shellEscape(params.service)} ${this.shellEscape(params.command)}${params.args?.length ? ` ${this.shellEscapeList(params.args)}` : ''}`;
       case 'docker_ps': return 'docker ps';
       case 'docker_images': return 'docker images';
       case 'docker_exec':
@@ -344,13 +385,21 @@ export class ToolHandlers {
       case 'docker_logs': return `docker logs -n ${params.lines || 100} ${this.shellEscape(params.container)}`;
       case 'docker_load': return `docker load -i ${this.shellEscape(params.path)}`;
       case 'docker_save': return `docker save -o ${this.shellEscape(params.path)} ${this.shellEscape(params.image)}`;
+      case 'docker_build': {
+        const buildArgs = (params.buildArgs || []).map((value: string) => ` --build-arg ${this.shellEscape(value)}`).join('');
+        return `docker build${params.tag ? ` -t ${this.shellEscape(params.tag)}` : ''}${params.dockerfile ? ` -f ${this.shellEscape(params.dockerfile)}` : ''}${params.noCache ? ' --no-cache' : ''}${params.networkHost ? ' --network=host' : ''}${buildArgs} ${this.shellEscape(params.context)}`;
+      }
       case 'systemctl_status': return `systemctl status ${this.shellEscape(params.service)}`;
       case 'systemctl_restart': return `systemctl restart ${this.shellEscape(params.service)}`;
       case 'systemctl_start': return `systemctl start ${this.shellEscape(params.service)}`;
       case 'systemctl_stop': return `systemctl stop ${this.shellEscape(params.service)}`;
+      case 'systemctl_enable': return `systemctl enable ${this.shellEscape(params.service)}`;
+      case 'systemctl_disable': return `systemctl disable ${this.shellEscape(params.service)}`;
       case 'ip_addr': return 'ip addr';
+      case 'ip_route': return 'ip route';
+      case 'mount': return 'mount';
       case 'journalctl':
-        return `journalctl --no-pager${params.unit ? ` -u ${this.shellEscape(params.unit)}` : ''}${params.priority ? ` -p ${this.shellEscape(params.priority)}` : ''}${params.since ? ` --since ${this.shellEscape(params.since)}` : ''} -n ${params.lines || 100}`;
+        return `journalctl --no-pager${params.unit ? ` -u ${this.shellEscape(params.unit)}` : ''}${params.priority ? ` -p ${this.shellEscape(params.priority)}` : ''}${params.since ? ` --since ${this.shellEscape(params.since)}` : ''}${params.until ? ` --until ${this.shellEscape(params.until)}` : ''}${params.follow ? ' -f' : ''} -n ${params.lines || 100}`;
       case 'firewall_cmd':
         return this.buildFirewallCommand(params);
       case 'netstat':
@@ -376,7 +425,13 @@ export class ToolHandlers {
         return common;
       }
       case 'df_h': return 'df -h';
+      case 'df_inode': return 'df -i';
       case 'du_sh': return `du -sh ${this.shellEscape(params.path)}`;
+      case 'which': return `which ${this.shellEscape(params.commandName)}`;
+      case 'lsof':
+        return `lsof${params.path ? ` ${this.shellEscape(params.path)}` : ''}${params.process ? ` -c ${this.shellEscape(params.process)}` : ''}${params.port !== undefined ? ` -i :${params.port}` : ''}`;
+      case 'file': return `file ${this.shellEscape(params.path)}`;
+      case 'stat': return `stat ${this.shellEscape(params.filePath)}`;
       case 'nvidia_smi': return 'nvidia-smi';
       case 'ps': return 'ps aux';
       case 'pgrep': return `pgrep ${params.fullCommand ? '-af ' : '-a '}${this.shellEscape(params.pattern)}`;

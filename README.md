@@ -189,11 +189,22 @@ args = ["--config", "./config.json"]
 * `cd`
 * `execute_batch` [Auth Required if any sub-command is high-risk]
 
+### System (9)
+* `get_system_info`
+* `hostname`
+* `id`
+* `uname`
+* `uptime`
+* `free`
+* `env`
+* `pwd`
+* `cd`
+
 ### Shell & Basic (2)
 * `execute_command` [Auth Required, single command only]
 * `echo`
 
-### File Management (17)
+### File Management (18)
 * `upload_file` [Auth Required]
 * `download_file`
 * `ll`
@@ -202,6 +213,7 @@ args = ["--config", "./config.json"]
 * `tail`
 * `sed`
 * `grep`
+* `grep_r`
 * `edit_text_file` [Auth Required]
 * `touch`
 * `mkdir` [Auth Required]
@@ -220,12 +232,16 @@ args = ["--config", "./config.json"]
 * `git_branch`
 * `git_log`
 
-### Docker & Compose (21)
+### Docker & Compose (26)
 * `docker_compose_up` [Auth Required]
 * `docker_compose_down` [Auth Required]
 * `docker_compose_stop` [Auth Required]
 * `docker_compose_logs`
 * `docker_compose_restart` [Auth Required]
+* `docker_compose_pull` [Auth Required]
+* `docker_compose_ps`
+* `docker_compose_config`
+* `docker_compose_exec` [Auth Required]
 * `docker_ps`
 * `docker_images`
 * `docker_exec` [Auth Required]
@@ -242,13 +258,18 @@ args = ["--config", "./config.json"]
 * `docker_logs`
 * `docker_load` [Auth Required]
 * `docker_save` [Auth Required]
+* `docker_build` [Auth Required, supports `networkHost` for `--network=host`]
 
-### Service & Network (14)
+### Service & Network (18)
 * `systemctl_status`
 * `systemctl_restart` [Auth Required]
 * `systemctl_start` [Auth Required]
 * `systemctl_stop` [Auth Required]
+* `systemctl_enable` [Auth Required]
+* `systemctl_disable` [Auth Required]
 * `ip_addr`
+* `ip_route`
+* `mount`
 * `journalctl`
 * `firewall_cmd` [Auth Required, structured actions only]
 * `netstat` [uses `args: string[]`]
@@ -259,13 +280,18 @@ args = ["--config", "./config.json"]
 * `dig`
 * `curl_http` [Auth Required]
 
-### Stats & Process (13)
+### Stats & Process (19)
 * `nvidia_smi`
 * `ps`
 * `pgrep`
 * `kill_process` [Auth Required]
 * `df_h`
+* `df_inode`
 * `du_sh`
+* `which`
+* `lsof`
+* `file`
+* `stat`
 * `chmod` [Auth Required]
 * `chown` [Auth Required]
 * `ln` [Auth Required]
@@ -274,7 +300,7 @@ args = ["--config", "./config.json"]
 * `zip` [Auth Required]
 * `unzip` [Auth Required]
 
-Total: 81 tools.
+Total: 103 tools.
 
 ---
 

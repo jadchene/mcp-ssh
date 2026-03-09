@@ -519,6 +519,662 @@ test('head should reject non-positive line counts', async () => {
   );
 });
 
+test('ll should support hidden files with all=true', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: '.env\n.git',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('ll', {
+      serverAlias: 'test-server',
+      all: true
+    })
+  );
+
+  assert.equal(result, '.env\n.git');
+  assert.equal(capturedCommand, 'ls -la');
+});
+
+test('grep_r should build a recursive grep command with include and exclude-dir filters', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: './src/app.ts:12:match',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('grep_r', {
+      serverAlias: 'test-server',
+      path: '/srv/app',
+      pattern: 'match',
+      ignoreCase: true,
+      include: ['*.ts'],
+      excludeDir: ['node_modules']
+    })
+  );
+
+  assert.equal(result, './src/app.ts:12:match');
+  assert.equal(capturedCommand, "grep -RinE --include '*.ts' --exclude-dir 'node_modules' 'match' '/srv/app'");
+});
+
+test('grep_r should support symmetric context output', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'ctx',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('grep_r', {
+      serverAlias: 'test-server',
+      path: '/srv/app',
+      pattern: 'match',
+      context: 2
+    })
+  );
+
+  assert.equal(capturedCommand, "grep -RnE -C 2 'match' '/srv/app'");
+});
+
+test('docker_build should support tag, dockerfile, build args, no-cache, and fixed host networking', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: [".*docker build -t 'demo:latest'.*-f 'Dockerfile\\.prod'.*--no-cache.*--network=host.*"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'build-ok',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_build', {
+      serverAlias: 'test-server',
+      context: '.',
+      tag: 'demo:latest',
+      dockerfile: 'Dockerfile.prod',
+      buildArgs: ['HTTP_PROXY=http://proxy.local:8080'],
+      noCache: true,
+      networkHost: true
+    })
+  );
+
+  assert.equal(result, 'build-ok');
+  assert.match(capturedCommand, /docker build/);
+  assert.match(capturedCommand, /--network=host/);
+  assert.match(capturedCommand, /-t 'demo:latest'/);
+  assert.match(capturedCommand, /-f 'Dockerfile\.prod'/);
+  assert.match(capturedCommand, /--build-arg 'HTTP_PROXY=http:\/\/proxy\.local:8080'/);
+});
+
+test('docker_compose_pull should build a service-scoped pull command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: ["^docker-compose pull 'api'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'pulled',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_compose_pull', {
+      serverAlias: 'test-server',
+      cwd: '/srv/app',
+      service: 'api'
+    })
+  );
+
+  assert.equal(result, 'pulled');
+  assert.equal(capturedCommand, "docker-compose pull 'api'");
+});
+
+test('docker_compose_ps should build a compose status command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'api  running',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_compose_ps', {
+      serverAlias: 'test-server',
+      cwd: '/srv/app'
+    })
+  );
+
+  assert.equal(result, 'api  running');
+  assert.equal(capturedCommand, 'docker-compose ps');
+});
+
+test('docker_compose_config should build a config render command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'services:\n  api:',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_compose_config', {
+      serverAlias: 'test-server',
+      cwd: '/srv/app'
+    })
+  );
+
+  assert.equal(result, 'services:\n  api:');
+  assert.equal(capturedCommand, 'docker-compose config');
+});
+
+test('docker_compose_exec should build a non-shell compose exec command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: [".*docker-compose exec -T.*'api'.*'/bin/sh'.*'-lc'.*'echo ok'.*"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'exec-ok',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('docker_compose_exec', {
+      serverAlias: 'test-server',
+      cwd: '/srv/app',
+      service: 'api',
+      command: '/bin/sh',
+      args: ['-lc', 'echo ok'],
+      user: 'root'
+    })
+  );
+
+  assert.equal(result, 'exec-ok');
+  assert.equal(capturedCommand, "docker-compose exec -T --user 'root' 'api' '/bin/sh' '-lc' 'echo ok'");
+});
+
+test('stat should build a file metadata inspection command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'Size: 128',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('stat', {
+      serverAlias: 'test-server',
+      filePath: '/tmp/app.log'
+    })
+  );
+
+  assert.equal(result, 'Size: 128');
+  assert.equal(capturedCommand, "stat '/tmp/app.log'");
+});
+
+test('find should support type, maxDepth, and pathPattern filters', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: '/srv/app/config/app.yml',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('find', {
+      serverAlias: 'test-server',
+      path: '/srv/app',
+      maxDepth: 3,
+      type: 'f',
+      name: '*.yml',
+      pathPattern: '*/config/*'
+    })
+  );
+
+  assert.equal(capturedCommand, "find '/srv/app' -maxdepth 3 -type f -name '*.yml' -path '*/config/*'");
+});
+
+test('journalctl should support follow and until filters', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'journal-output',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('journalctl', {
+      serverAlias: 'test-server',
+      unit: 'nginx',
+      since: '1 hour ago',
+      until: 'now',
+      follow: true,
+      lines: 20
+    })
+  );
+
+  assert.equal(capturedCommand, "journalctl --no-pager -u 'nginx' --since '1 hour ago' --until 'now' -f -n 20");
+});
+
+test('which should build a command path lookup', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: '/usr/bin/docker',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('which', {
+      serverAlias: 'test-server',
+      commandName: 'docker'
+    })
+  );
+
+  assert.equal(capturedCommand, "which 'docker'");
+});
+
+test('lsof should support path, process, and port filters', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'nginx 123 root  txt',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('lsof', {
+      serverAlias: 'test-server',
+      path: '/var/log/nginx/access.log',
+      process: 'nginx',
+      port: 443
+    })
+  );
+
+  assert.equal(capturedCommand, "lsof '/var/log/nginx/access.log' -c 'nginx' -i :443");
+});
+
+test('env should build an environment listing command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'PATH=/usr/bin', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('env', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'env');
+});
+
+test('file should build a file type inspection command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'ASCII text', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('file', {
+      serverAlias: 'test-server',
+      path: '/tmp/app.log'
+    })
+  );
+
+  assert.equal(capturedCommand, "file '/tmp/app.log'");
+});
+
+test('hostname should build a hostname command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'server-01', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('hostname', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'hostname');
+});
+
+test('uptime should build an uptime command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: ' 10:00 up 1 day', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('uptime', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'uptime');
+});
+
+test('free should build a memory usage command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'Mem:', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('free', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'free -m');
+});
+
+test('df_inode should build an inode usage command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'Inodes', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('df_inode', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'df -i');
+});
+
+test('mount should build a mounted filesystems command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: '/dev/sda1 on /', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('mount', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'mount');
+});
+
+test('id should build an identity command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'uid=0(root)', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('id', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'id');
+});
+
+test('uname should default to full kernel info', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'Linux host 6.1', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('uname', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'uname -a');
+});
+
+test('ip_route should build a route inspection command', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager()
+  );
+
+  let capturedCommand = null;
+
+  await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'default via 10.0.0.1', stderr: '', code: 0, signal: null };
+    }
+  }, () =>
+    handlers.handleTool('ip_route', {
+      serverAlias: 'test-server'
+    })
+  );
+
+  assert.equal(capturedCommand, 'ip route');
+});
+
+test('systemctl_enable should build an enable command and support whitelist', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: ["^systemctl enable 'nginx'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'enabled',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('systemctl_enable', {
+      serverAlias: 'test-server',
+      service: 'nginx'
+    })
+  );
+
+  assert.equal(result, 'enabled');
+  assert.equal(capturedCommand, "systemctl enable 'nginx'");
+});
+
+test('systemctl_disable should build a disable command and support whitelist', async () => {
+  const handlers = new ToolHandlers(
+    createConfigManager({ whitelist: ["^systemctl disable 'nginx'$"] })
+  );
+
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return {
+        stdout: 'disabled',
+        stderr: '',
+        code: 0,
+        signal: null
+      };
+    }
+  }, () =>
+    handlers.handleTool('systemctl_disable', {
+      serverAlias: 'test-server',
+      service: 'nginx'
+    })
+  );
+
+  assert.equal(result, 'disabled');
+  assert.equal(capturedCommand, "systemctl disable 'nginx'");
+});
+
 test('read-only server should still reject whitelisted built-in write tools', async () => {
   const handlers = new ToolHandlers(
     createConfigManager({

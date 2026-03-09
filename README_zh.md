@@ -189,11 +189,22 @@ args = ["--config", "./config.json"]
 * `cd`
 * `execute_batch` [若子命令含高风险操作则需确认]
 
+### 系统 (9)
+* `get_system_info`
+* `hostname`
+* `id`
+* `uname`
+* `uptime`
+* `free`
+* `env`
+* `pwd`
+* `cd`
+
 ### Shell 与基础 (2)
 * `execute_command` [需确认，仅允许单条命令]
 * `echo`
 
-### 文件管理 (17)
+### 文件管理 (18)
 * `upload_file` [需确认]
 * `download_file`
 * `ll`
@@ -202,6 +213,7 @@ args = ["--config", "./config.json"]
 * `tail`
 * `sed`
 * `grep`
+* `grep_r`
 * `edit_text_file` [需确认]
 * `touch`
 * `mkdir` [需确认]
@@ -220,12 +232,16 @@ args = ["--config", "./config.json"]
 * `git_branch`
 * `git_log`
 
-### Docker 与 Compose (21)
+### Docker 与 Compose (26)
 * `docker_compose_up` [需确认]
 * `docker_compose_down` [需确认]
 * `docker_compose_stop` [需确认]
 * `docker_compose_logs`
 * `docker_compose_restart` [需确认]
+* `docker_compose_pull` [需确认]
+* `docker_compose_ps`
+* `docker_compose_config`
+* `docker_compose_exec` [需确认]
 * `docker_ps`
 * `docker_images`
 * `docker_exec` [需确认]
@@ -242,13 +258,18 @@ args = ["--config", "./config.json"]
 * `docker_logs`
 * `docker_load` [需确认]
 * `docker_save` [需确认]
+* `docker_build` [需确认，支持 `networkHost` 追加 `--network=host`]
 
-### 系统服务与网络 (14)
+### 系统服务与网络 (18)
 * `systemctl_status`
 * `systemctl_restart` [需确认]
 * `systemctl_start` [需确认]
 * `systemctl_stop` [需确认]
+* `systemctl_enable` [需确认]
+* `systemctl_disable` [需确认]
 * `ip_addr`
+* `ip_route`
+* `mount`
 * `journalctl`
 * `firewall_cmd` [需确认，仅支持结构化常用动作]
 * `netstat` [使用 `args: string[]`]
@@ -259,13 +280,18 @@ args = ["--config", "./config.json"]
 * `dig`
 * `curl_http` [需确认]
 
-### 统计与进程 (13)
+### 统计与进程 (19)
 * `nvidia_smi`
 * `ps`
 * `pgrep`
 * `kill_process` [需确认]
 * `df_h`
+* `df_inode`
 * `du_sh`
+* `which`
+* `lsof`
+* `file`
+* `stat`
 * `chmod` [需确认]
 * `chown` [需确认]
 * `ln` [需确认]
@@ -274,7 +300,7 @@ args = ["--config", "./config.json"]
 * `zip` [需确认]
 * `unzip` [需确认]
 
-总计：81 个工具。
+总计：103 个工具。
 
 ---
 
