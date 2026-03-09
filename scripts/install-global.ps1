@@ -101,10 +101,10 @@ $example = @{
     mcpServers = @{
         ssh = @{
             command = "mcp-ssh-service"
-            args = @()
-            env = @{
-                MCP_SSH_CONFIG = $resolvedConfigPath
-            }
+            args = @(
+                "--config",
+                $resolvedConfigPath
+            )
         }
     }
 } | ConvertTo-Json -Depth 6
