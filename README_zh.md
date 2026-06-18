@@ -1,45 +1,40 @@
 [English](./README.md) | 简体中文
 
-# 🚀 mcp-ssh
+# mcp-ssh
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
-[![MCP Ready](https://img.shields.io/badge/MCP-Ready-blue)](https://modelcontextprotocol.io/)
+mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服务。它为 AI Agent 提供结构化工具，用于服务器发现、Shell 命令、文件、Git、Docker、系统服务、网络检查和进程排查。
 
-一款**生产级**的 Model Context Protocol (MCP) 服务器，专为安全、无状态的 SSH 自动化设计。本服务赋予 AI 智能体管理远程基础设施的能力，同时提供**人工介入（Human-in-the-loop）**的安全保障和**语义化环境感知**。
+服务面向无状态 SSH 自动化，并内置明确的安全控制：服务器级只读模式、命令黑名单、可信命令白名单、危险操作两步确认，以及自由 Shell 命令的单命令限制。
 
----
+## 功能
 
-## 🌟 核心支柱
+- 通过语义化别名和描述配置多个 SSH 服务器。
+- 支持密码、私钥、私钥口令和跳板机 SSH 连接。
+- 把常用远程路径映射成命名工作目录。
+- 使用只读系统、文件、进程、网络、Git 和 Docker 检查工具。
+- 写入操作默认需要确认，除非最终命令被显式白名单信任。
+- `execute_command` 会拒绝命令串联、管道、重定向、子 Shell 和多行输入。
+- 为常见操作提供内置工具，减少让 Agent 拼接高风险 Shell 片段的需求。
+- 支持按服务器设置 `readOnly`，禁用写入和修改工具。
+- 运行日志不写入 MCP stdout；文件日志写入 `logDir`。
 
-### 🔒 极致的安全防护
-*   **两步确认机制**: 所有高危操作（写入、删除、重启）都会返回一个 `confirmationId`。在人类明确批准该笔交易前，服务器不会执行任何实际指令。
-*   **命令黑名单**: 实时正则拦截毁灭性命令，如 `rm -rf /` 或 `mkfs`。
-*   **命令白名单**: 命中配置的可信最终命令字符串可直接放行，内置高危 tool 与 `execute_batch` 子命令同样适用。
-*   **单命令强制约束**: `execute_command` 在服务端拒绝 shell 串联、管道、重定向、子 shell 和多行输入。
-*   **服务器级只读模式**: 支持在配置层面将特定服务器锁定为非破坏性模式。
-*   **关键目录保护**: 代码级硬拦截对 `/etc`、`/usr` 等系统核心路径的误删操作。
+## 为什么使用它
 
-### 🧠 AI 原生设计
-*   **语义化基础设施发现**: AI 可以列出所有服务器，并通过自然语言描述理解其用途。
-*   **工作目录别名**: 将复杂的路径（如 `/var/www/my-app/v1/prod`）映射为简单的别名（如 `app-root`），并附带语义描述。
-*   **环境预检**: 内置工具支持在执行前验证远程依赖（如 Docker、Git）是否存在。
+- Agent 获得稳定工具接口，而不是只有原始 SSH 命令入口。
+- 服务器别名和工作目录别名让 Agent 更容易理解远程环境。
+- 高风险操作在执行前会被确认流程拦截。
+- 常见运维动作被封装成带参数校验的结构化工具。
 
----
+## 快速开始
 
-## 🚀 快速开始
-
-### 安装
+从 npm 安装：
 
 ```bash
-# 通过 npm 全局安装
 npm install -g @jadchene/mcp-ssh-service
-
-# 使用配置文件启动服务
 mcp-ssh-service --config ./config.json
 ```
 
-### 源码运行
+从源码运行：
 
 ```bash
 git clone https://github.com/jadchene/mcp-ssh.git
@@ -49,52 +44,29 @@ npm run build
 node dist/index.js --config ./config.json
 ```
 
----
+发布后的 CLI 命令是：
 
-## 🧩 Skill 集成（推荐）
+```text
+mcp-ssh-service
+```
 
-对于 Codex、Gemini 等 AI 助手，仓库内已提供 `ssh-mcp` skill，配合使用可显著提升执行稳定性与安全一致性。
+## 配置
 
-- Skill 路径：`skills/ssh-mcp/SKILL.md`
-- 主要收益：
-  - 对高风险操作强制执行两步确认
-  - 多步骤任务优先使用 `execute_batch`，避免高风险命令串联
-  - 统一服务器发现、依赖预检、执行后校验流程
-  - 减少误操作与上下文压缩导致的执行偏差
+通过 CLI 参数指定配置文件：
 
-若你的 AI 客户端支持 Skills，建议在调用 SSH MCP 工具前先加载该 skill。
+```bash
+mcp-ssh-service --config ./config.json
+```
 
----
+或通过环境变量指定：
 
-## ⚙️ 配置参数详解
+```bash
+MCP_SSH_CONFIG=./config.json mcp-ssh-service
+```
 
-### 全局设置
-| 参数 | 类型 | 描述 |
-| --- | --- | --- |
-| `logDir` | string | 日志存储目录。支持环境变量如 `${HOME}`。 |
-| `commandBlacklist` | string[] | 全局禁止执行的命令正则列表（如 `["^rm -rf"]`）。 |
-| `commandWhitelist` | string[] | 可信最终命令正则列表，命中后可让高危 tool 及 `execute_batch` 内对应子命令跳过二次确认。 |
-| `defaultTimeout` | number | SSH 命令执行超时时间（毫秒，默认 60000）。 |
-| `servers` | object | 服务器配置字典，Key 即为 `serverAlias`。 |
+如果两者都没有提供，服务会尝试读取当前工作目录下的 `config.json`。
 
-### 服务器配置对象
-| 参数 | 类型 | 描述 |
-| --- | --- | --- |
-| `host` | string | 远程主机 IP 或域名。支持环境变量。 |
-| `port` | number | SSH 端口（默认 22）。 |
-| `username` | string | SSH 登录用户名。 |
-| `password` | string | SSH 密码。建议使用 `${VAR}` 引用环境变量。 |
-| `privateKeyPath` | string | 私钥文件路径。 |
-| `passphrase` | string | 私钥文件的保护口令。 |
-| `readOnly` | boolean | 是否设为只读模式。开启后禁用所有写操作工具。 |
-| `desc` | string | 服务器语义化描述，显示在 `list_servers` 中。 |
-| `strictHostKeyChecking` | boolean | 设为 `false` 以跳过 Host Key 校验。 |
-| `workingDirectories` | object | 路径别名映射（Key: { path, desc }）。 |
-| `proxyJump` | object | 可选的跳板机配置（结构与服务器配置一致）。 |
-
----
-
-## ⚙️ 配置示例
+最小配置：
 
 ```json
 {
@@ -104,32 +76,226 @@ node dist/index.js --config ./config.json
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
-      "desc": "核心 API 集群",
+      "desc": "Production web server",
       "host": "10.0.0.5",
+      "port": 22,
       "username": "deploy",
       "privateKeyPath": "~/.ssh/id_rsa",
-      "passphrase": "${SSH_KEY_PWD}",
+      "passphrase": "${SSH_KEY_PASSPHRASE}",
       "workingDirectories": {
-        "logs": { "path": "/var/log/nginx", "desc": "Nginx 访问日志目录" }
-      },
-      "proxyJump": {
-        "host": "bastion.example.com",
-        "username": "jumpuser"
+        "app": {
+          "path": "/srv/app",
+          "desc": "Application root"
+        },
+        "logs": {
+          "path": "/var/log/nginx",
+          "desc": "Nginx logs"
+        }
       }
     }
   }
 }
 ```
 
----
+全局配置：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `logDir` | string | 文件日志目录。支持 `${HOME}` 等环境变量。 |
+| `commandBlacklist` | string[] | 被禁止的命令字符串正则。 |
+| `commandWhitelist` | string[] | 可信最终命令正则，匹配后可跳过确认。 |
+| `defaultTimeout` | number | 命令超时时间，单位毫秒，默认 `60000`。 |
+| `servers` | object | 以服务器别名为 key 的服务器配置。 |
+
+服务器字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `desc` | string | 展示给 Agent 的服务器用途描述。 |
+| `host` | string | SSH 主机名或 IP，支持环境变量。 |
+| `port` | number | SSH 端口，默认 `22`。 |
+| `username` | string | SSH 用户名。 |
+| `password` | string | SSH 密码，建议使用 `${VAR}` 占位。 |
+| `privateKeyPath` | string | 私钥文件路径。 |
+| `passphrase` | string | 私钥口令，建议使用 `${VAR}` 占位。 |
+| `readOnly` | boolean | 禁用该服务器的写入和修改工具。 |
+| `strictHostKeyChecking` | boolean | 只有明确接受跳过 host key 校验时才设为 `false`。 |
+| `workingDirectories` | object | `{ path, desc }` 形式的命名路径别名。 |
+| `proxyJump` | object | 可选跳板机配置。 |
+
+## MCP 工具
+
+请使用 MCP 客户端的 `list_tools` 查看当前安装版本暴露的精确 schema。
+
+发现与核心：
+
+| 工具 | 用途 |
+| --- | --- |
+| `list_servers` | 列出已配置 SSH 服务器、主机和描述。 |
+| `ping_server` | 测试某个服务器配置是否可连接。 |
+| `list_working_directories` | 列出某台服务器的命名路径别名。 |
+| `check_dependencies` | 检查远程服务器是否存在指定命令。 |
+| `execute_batch` | 在同一个持久 SSH 会话中执行一组工具调用。 |
+
+系统：
+
+| 工具 | 用途 |
+| --- | --- |
+| `get_system_info` | 返回当前用户、运行时间、内核和内存摘要。 |
+| `hostname` | 查看远程主机名。 |
+| `id` | 查看当前用户和用户组身份。 |
+| `uname` | 查看内核和操作系统信息。 |
+| `uptime` | 查看运行时间和负载。 |
+| `free` | 查看内存使用情况。 |
+| `env` | 查看远程会话环境变量。 |
+| `pwd` | 查看当前远程目录。 |
+| `cd` | 在 `execute_batch` 会话中切换目录。 |
+
+Shell 与文件：
+
+| 工具 | 用途 |
+| --- | --- |
+| `execute_command` | 执行单个 Shell 命令片段，除非命中白名单，否则需要确认。 |
+| `echo` | 输出文本或变量。 |
+| `upload_file` | 上传本地文件到远程服务器。 |
+| `download_file` | 下载远程文件到本机。 |
+| `ll` | 以详细格式列出文件。 |
+| `cat` | 读取文本文件。 |
+| `head` | 读取文件开头若干行。 |
+| `tail` | 读取文件或日志末尾若干行。 |
+| `sed` | 读取文本文件的闭区间行范围。 |
+| `grep` | 在单个文件中按正则搜索。 |
+| `grep_r` | 在目录树下递归搜索。 |
+| `edit_text_file` | 创建或覆盖文本文件。 |
+| `touch` | 创建空文件或更新时间戳。 |
+| `mkdir` | 创建目录，可选择创建父目录。 |
+| `mv` | 移动或重命名文件/目录。 |
+| `cp` | 复制文件或目录。 |
+| `append_text_file` | 追加文本到文件，不存在时创建。 |
+| `replace_in_file` | 替换文件中的字面量文本。 |
+| `rm_safe` | 通过受控删除路径删除文件或目录。 |
+| `find` | 按名称、类型、深度或路径模式查找文件/目录。 |
+
+Git：
+
+| 工具 | 用途 |
+| --- | --- |
+| `git_status` | 查看仓库状态。 |
+| `git_fetch` | 拉取远程引用。 |
+| `git_pull` | 拉取最新变更。 |
+| `git_switch` | 切换或创建分支。 |
+| `git_branch` | 列出本地或全部分支。 |
+| `git_log` | 查看最近提交历史。 |
+
+Docker 与 Compose：
+
+| 工具 | 用途 |
+| --- | --- |
+| `docker_compose_up` | 启动或部署 compose stack。 |
+| `docker_compose_down` | 停止并移除 compose stack。 |
+| `docker_compose_stop` | 停止 compose 服务。 |
+| `docker_compose_logs` | 查看 compose 日志。 |
+| `docker_compose_restart` | 重启 compose stack。 |
+| `docker_compose_pull` | 拉取 compose stack 镜像。 |
+| `docker_compose_ps` | 列出 compose 服务和状态。 |
+| `docker_compose_config` | 渲染完整 compose 配置。 |
+| `docker_compose_exec` | 在 compose 服务容器中运行进程。 |
+| `docker_ps` | 列出 Docker 容器。 |
+| `docker_images` | 列出 Docker 镜像。 |
+| `docker_exec` | 在容器中运行进程。 |
+| `docker_inspect` | 检查容器、镜像、卷或网络。 |
+| `docker_stats` | 查看容器资源使用情况。 |
+| `docker_pull` | 拉取镜像。 |
+| `docker_cp` | 在容器和远程文件系统之间复制文件。 |
+| `docker_stop` | 停止容器。 |
+| `docker_rm` | 删除容器。 |
+| `docker_start` | 启动容器。 |
+| `docker_restart` | 重启容器。 |
+| `docker_rmi` | 删除镜像。 |
+| `docker_commit` | 从容器变更创建镜像。 |
+| `docker_logs` | 查看容器日志。 |
+| `docker_load` | 从 tar 归档加载镜像。 |
+| `docker_save` | 把镜像保存为 tar 归档。 |
+| `docker_build` | 从构建上下文构建镜像。 |
+
+服务与网络：
+
+| 工具 | 用途 |
+| --- | --- |
+| `systemctl_status` | 查看 systemd 服务状态。 |
+| `systemctl_restart` | 重启 systemd 服务。 |
+| `systemctl_start` | 启动 systemd 服务。 |
+| `systemctl_stop` | 停止 systemd 服务。 |
+| `systemctl_enable` | 设置 systemd 服务开机启用。 |
+| `systemctl_disable` | 设置 systemd 服务开机禁用。 |
+| `ip_addr` | 查看网络接口地址。 |
+| `ip_route` | 查看路由表信息。 |
+| `mount` | 查看已挂载文件系统。 |
+| `journalctl` | 查看 systemd journal 日志。 |
+| `firewall_cmd` | 执行结构化防火墙操作。 |
+| `netstat` | 检查端口和网络连接。 |
+| `ss` | 检查 socket 统计信息。 |
+| `ping_host` | ping 指定主机。 |
+| `traceroute` | 跟踪到目标主机的网络路径。 |
+| `nslookup` | 使用 `nslookup` 解析 DNS。 |
+| `dig` | 使用 `dig` 解析 DNS 记录。 |
+| `curl_http` | 执行结构化 HTTP 请求。 |
+
+状态、进程和归档：
+
+| 工具 | 用途 |
+| --- | --- |
+| `nvidia_smi` | 在存在 `nvidia-smi` 时查看 GPU 状态。 |
+| `ps` | 查看进程快照。 |
+| `pgrep` | 按模式查找进程 ID。 |
+| `kill_process` | 向进程发送信号。 |
+| `df_h` | 查看文件系统磁盘使用情况。 |
+| `df_inode` | 查看文件系统 inode 使用情况。 |
+| `du_sh` | 估算目录大小。 |
+| `which` | 解析命令可执行文件路径。 |
+| `lsof` | 检查打开文件、端口或进程文件关系。 |
+| `file` | 识别文件类型和编码。 |
+| `stat` | 查看文件元数据。 |
+| `chmod` | 修改文件权限位。 |
+| `chown` | 修改文件所有者或用户组。 |
+| `ln` | 创建链接，通常是符号链接。 |
+| `tar_create` | 创建 tar 归档。 |
+| `tar_extract` | 解压 tar 归档。 |
+| `zip` | 创建 zip 归档。 |
+| `unzip` | 解压 zip 归档。 |
+
+## 安全模型
+
+高风险操作会返回带 `confirmationId` 的 pending 结果。用户确认后，Agent 必须用相同参数再次调用同一个工具，并附带 `confirmationId` 和 `confirmExecution: true`。
+
+服务会检查确认时的参数是否与原始请求完全一致，然后才执行。
+
+`execute_command` 只接受单个 Shell 命令片段。它会拒绝 `&&`、`||`、`;`、管道、重定向、子 Shell 语法和多行输入。多步骤工作请使用 `execute_batch` 或内置结构化工具。
+
+`commandBlacklist` 会阻止被禁止的最终命令字符串。`commandWhitelist` 只会对匹配配置正则的可信最终命令跳过确认。
+
+对破坏性或修改类工作，优先使用 `mkdir`、`edit_text_file`、`replace_in_file`、`docker_compose_restart`、`systemctl_restart` 等内置工具，而不是自由 Shell 命令。
+
+## 推荐流程
+
+1. 调用 `list_servers`，根据别名和描述选择目标服务器。
+2. 依赖连通性的任务先调用 `ping_server`。
+3. 当任务涉及项目、日志或部署路径时，调用 `list_working_directories`。
+4. 先使用只读工具检查现状。
+5. 变更类操作使用内置结构化工具，并由确认流程控制执行。
+6. 操作后用只读命令或检查工具验证结果。
+
+## Skill 集成
+
+仓库内包含一个 SSH MCP skill：
+
+- Skill 路径：`skills/ssh-mcp/SKILL.md`
+
+当你的 Agent 支持 skills 时建议加载它。它会统一服务器发现、安全命令选择、确认行为和操作后验证。
 
 ## MCP 客户端配置
 
-下面的示例展示了如何在常见 AI 客户端中注册本 MCP 服务。请将配置文件路径替换为你自己的本地路径。为了保持配置可移植，以下示例刻意避免使用绝对路径。
-
-### Codex
-
-`~/.codex/config.toml`
+Codex：
 
 ```toml
 [mcp_servers.ssh]
@@ -137,9 +303,7 @@ command = "mcp-ssh-service"
 args = ["--config", "./config.json"]
 ```
 
-### Gemini CLI
-
-`~/.gemini/settings.json`
+Gemini CLI：
 
 ```json
 {
@@ -147,18 +311,13 @@ args = ["--config", "./config.json"]
     "ssh": {
       "type": "stdio",
       "command": "mcp-ssh-service",
-      "args": [
-        "--config",
-        "./config.json"
-      ]
+      "args": ["--config", "./config.json"]
     }
   }
 }
 ```
 
-### Claude Code
-
-`~/.claude.json`
+Claude Code：
 
 ```json
 {
@@ -166,161 +325,26 @@ args = ["--config", "./config.json"]
     "ssh": {
       "type": "stdio",
       "command": "mcp-ssh-service",
-      "args": [
-        "--config",
-        "./config.json"
-      ]
+      "args": ["--config", "./config.json"]
     }
   }
 }
 ```
 
----
+## 开发
 
-## 🛠️ 集成工具集 (79 个工具)
+```bash
+npm install
+npm run build
+npm test
+```
 
-### 发现与核心 (8)
-* `list_servers`
-* `ping_server`
-* `list_working_directories`
-* `check_dependencies`
-* `get_system_info`
-* `pwd`
-* `cd`
-* `execute_batch` [若子命令含高风险操作则需确认]
+运行构建后的服务：
 
-### 系统 (9)
-* `get_system_info`
-* `hostname`
-* `id`
-* `uname`
-* `uptime`
-* `free`
-* `env`
-* `pwd`
-* `cd`
+```bash
+node dist/index.js --config ./config.json
+```
 
-### Shell 与基础 (2)
-* `execute_command` [需确认，仅允许单条命令]
-* `echo`
+## License
 
-### 文件管理 (18)
-* `upload_file` [需确认]
-* `download_file`
-* `ll`
-* `cat`
-* `head`
-* `tail`
-* `sed`
-* `grep`
-* `grep_r`
-* `edit_text_file` [需确认]
-* `touch`
-* `mkdir` [需确认]
-* `mv` [需确认]
-* `cp` [需确认]
-* `append_text_file` [需确认]
-* `replace_in_file` [需确认]
-* `rm_safe` [需确认]
-* `find`
-
-### Git (6)
-* `git_status`
-* `git_fetch` [需确认]
-* `git_pull` [需确认]
-* `git_switch` [需确认]
-* `git_branch`
-* `git_log`
-
-### Docker 与 Compose (26)
-* `docker_compose_up` [需确认]
-* `docker_compose_down` [需确认]
-* `docker_compose_stop` [需确认]
-* `docker_compose_logs`
-* `docker_compose_restart` [需确认]
-* `docker_compose_pull` [需确认]
-* `docker_compose_ps`
-* `docker_compose_config`
-* `docker_compose_exec` [需确认]
-* `docker_ps`
-* `docker_images`
-* `docker_exec` [需确认]
-* `docker_inspect`
-* `docker_stats`
-* `docker_pull` [需确认]
-* `docker_cp` [需确认]
-* `docker_stop` [需确认]
-* `docker_rm` [需确认]
-* `docker_start` [需确认]
-* `docker_restart` [需确认]
-* `docker_rmi` [需确认]
-* `docker_commit` [需确认]
-* `docker_logs`
-* `docker_load` [需确认]
-* `docker_save` [需确认]
-* `docker_build` [需确认，支持 `networkHost` 追加 `--network=host`]
-
-### 系统服务与网络 (18)
-* `systemctl_status`
-* `systemctl_restart` [需确认]
-* `systemctl_start` [需确认]
-* `systemctl_stop` [需确认]
-* `systemctl_enable` [需确认]
-* `systemctl_disable` [需确认]
-* `ip_addr`
-* `ip_route`
-* `mount`
-* `journalctl`
-* `firewall_cmd` [需确认，仅支持结构化常用动作]
-* `netstat` [使用 `args: string[]`]
-* `ss` [使用 `args: string[]`]
-* `ping_host`
-* `traceroute`
-* `nslookup`
-* `dig`
-* `curl_http` [需确认]
-
-### 统计与进程 (19)
-* `nvidia_smi`
-* `ps`
-* `pgrep`
-* `kill_process` [需确认]
-* `df_h`
-* `df_inode`
-* `du_sh`
-* `which`
-* `lsof`
-* `file`
-* `stat`
-* `chmod` [需确认]
-* `chown` [需确认]
-* `ln` [需确认]
-* `tar_create` [需确认]
-* `tar_extract` [需确认]
-* `zip` [需确认]
-* `unzip` [需确认]
-
-总计：103 个工具。
-
----
-
-## 🔐 确认机制工作流
-
-1.  **发起请求**: AI 调用 `execute_command({ command: "systemctl restart nginx" })`。
-2.  **拦截指令**: 服务器返回 `status: "pending"` 及一个唯一的 `confirmationId`。
-3.  **人工审核**: 您在聊天客户端中预览并批准该操作。
-4.  **最终执行**: AI 携带 `confirmationId` 和 `confirmExecution: true` 再次调用 `execute_command`。
-5.  **校验放行**: 服务器确认参数完全匹配且 ID 有效，正式下发 SSH 命令。
-
-如果某个高危 tool 生成的最终命令命中了 `commandWhitelist`，服务器会跳过 `pending` 阶段直接执行。对于 `execute_batch`，只有包含未命中白名单的高危子命令时，整批任务才会进入二次确认流程。
-
-`execute_command` 仅允许一个 shell 命令段。服务器会拒绝 `&&`、`||`、`;`、管道、重定向、子 shell 语法以及多行输入。对于内置 tool，所有用户传入参数会在执行前做 shell 转义，以降低命令注入风险。
-
-`firewall_cmd` 不再接受自由拼接的 shell 参数片段，改为使用 `action`、`port`、`zone`、`permanent`、`listTarget` 这些结构化字段。`netstat` 则改为 `args: string[]`，服务端会按独立参数逐项校验。
-
-创建目录请优先使用 `mkdir`，不要再用 `execute_command "mkdir ..."`。需要 `mkdir -p` 行为时，传 `parents: true`。
-
----
-
-## 📄 许可证
-本项目采用 [MIT 许可证](./LICENSE)。
+MIT. See [LICENSE](LICENSE).

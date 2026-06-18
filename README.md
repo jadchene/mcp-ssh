@@ -1,45 +1,40 @@
 English | [简体中文](./README_zh.md)
 
-# 🚀 mcp-ssh
+# mcp-ssh
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
-[![MCP Ready](https://img.shields.io/badge/MCP-Ready-blue)](https://modelcontextprotocol.io/)
+mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It gives AI agents structured tools for server discovery, shell commands, files, Git, Docker, system services, network checks, and process inspection.
 
-A **production-grade** Model Context Protocol (MCP) server designed for secure, stateless SSH automation. This service empowers AI agents to manage remote infrastructure with **human-in-the-loop** safety and **semantic environment awareness**.
+The service is designed for stateless SSH automation with explicit safety controls: server-level read-only mode, command blacklists, optional whitelists for trusted commands, two-step confirmation for high-risk operations, and single-command enforcement for free-form shell execution.
 
----
+## Features
 
-## 🌟 Key Pillars
+- Configure multiple SSH servers with semantic aliases and descriptions.
+- Use password, private key, passphrase, and jump-host SSH connections.
+- Map frequently used remote paths as named working directories.
+- Run read-only system, file, process, network, Git, and Docker inspection tools.
+- Execute controlled write operations only after confirmation unless a command is explicitly whitelisted.
+- Reject shell chaining, pipes, redirection, subshells, and multiline payloads in `execute_command`.
+- Use built-in tools for common operations instead of asking the agent to compose risky shell fragments.
+- Support per-server `readOnly` mode to disable write and modify tools.
+- Keep operational logs out of MCP stdout; file logs are written under `logDir`.
 
-### 🔒 Uncompromising Security
-*   **Two-Step Confirmation**: High-risk operations (writes, deletes, restarts) return a `confirmationId`. Nothing happens until a human approves the specific transaction.
-*   **Command Blacklist**: Real-time regex interception for catastrophic commands like `rm -rf /` or `mkfs`.
-*   **Command Whitelist**: Trusted final command strings can bypass manual confirmation by matching configured regex patterns. This applies to built-in high-risk tools and to `execute_batch` sub-commands.
-*   **Single-Command Enforcement**: `execute_command` rejects shell chaining, pipes, redirection, subshells, and multiline payloads at the server layer.
-*   **Server-Level Read-Only**: Lock specific servers to a non-destructive mode at the configuration level.
-*   **Restricted File Deletion**: Hardcoded prevention of accidental deletion of system-critical paths like `/etc` or `/usr`.
+## Why Use It
 
-### 🧠 AI-Native Design
-*   **Semantic Infrastructure Discovery**: AI can list servers and understand their purposes via natural language descriptions.
-*   **Working Directory Aliases**: Map complex paths to simple aliases like `app-root` with descriptive metadata.
-*   **Contextual Pre-checks**: Built-in tools to verify dependencies (Docker, Git) before execution.
+- Agents get a stable tool surface instead of raw SSH access only.
+- Server aliases and working directory aliases make remote infrastructure easier for agents to understand.
+- High-risk actions are gated before execution.
+- Common DevOps operations are represented as structured tools with validated parameters.
 
----
+## Quick Start
 
-## 🚀 Quick Start
-
-### Installation
+Install from npm:
 
 ```bash
-# Install globally via npm
 npm install -g @jadchene/mcp-ssh-service
-
-# Start the server with a config file
 mcp-ssh-service --config ./config.json
 ```
 
-### Source Setup
+Run from source:
 
 ```bash
 git clone https://github.com/jadchene/mcp-ssh.git
@@ -49,52 +44,29 @@ npm run build
 node dist/index.js --config ./config.json
 ```
 
----
+The published CLI command is:
 
-## 🧩 Skill Integration (Recommended)
+```text
+mcp-ssh-service
+```
 
-For AI assistants (Codex / Gemini / similar agents), this repository includes an SSH MCP skill that significantly improves execution quality and safety consistency.
+## Configuration
 
-- Skill path: `skills/ssh-mcp/SKILL.md`
-- Benefits:
-  - Enforces strict two-step confirmation for high-risk operations
-  - Prefers `execute_batch` for multi-step workflows and avoids risky command chaining
-  - Standardizes server discovery, dependency checks, and post-action verification
-  - Reduces accidental destructive operations and context-loss mistakes
+Pass the config file by CLI argument:
 
-When your agent supports skills, load this skill before using SSH MCP tools for best results.
+```bash
+mcp-ssh-service --config ./config.json
+```
 
----
+Or by environment variable:
 
-## ⚙️ Configuration Schema
+```bash
+MCP_SSH_CONFIG=./config.json mcp-ssh-service
+```
 
-### Global Settings
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `logDir` | string | Directory for logs. Supports env vars like `${HOME}`. |
-| `commandBlacklist` | string[] | Prohibited command regex patterns (e.g., `["^rm -rf"]`). |
-| `commandWhitelist` | string[] | Trusted final-command regex patterns that can skip confirmation for high-risk tools and `execute_batch` sub-commands. |
-| `defaultTimeout` | number | Command timeout in milliseconds (default: 60000). |
-| `servers` | object | Dictionary of server configs where key is the `serverAlias`. |
+If neither is provided, the service tries `config.json` in the current working directory.
 
-### Server Object
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `host` | string | Remote IP or hostname. Supports env vars. |
-| `port` | number | SSH port (default: 22). |
-| `username` | string | SSH login user. |
-| `password` | string | SSH password. Use `${VAR}` for security. |
-| `privateKeyPath` | string | Path to private key file. |
-| `passphrase` | string | Passphrase for the private key. |
-| `readOnly` | boolean | Disables all write/modify tools for this server. |
-| `desc` | string | Server description shown in `list_servers`. |
-| `strictHostKeyChecking` | boolean | Set to `false` to bypass host key verification. |
-| `workingDirectories` | object | Semantic path mappings (Key: { path, desc }). |
-| `proxyJump` | object | Optional jump host (recursive server config). |
-
----
-
-## ⚙️ Configuration Example
+Minimal config:
 
 ```json
 {
@@ -104,32 +76,226 @@ When your agent supports skills, load this skill before using SSH MCP tools for 
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
-      "desc": "Primary API Cluster",
+      "desc": "Production web server",
       "host": "10.0.0.5",
+      "port": 22,
       "username": "deploy",
       "privateKeyPath": "~/.ssh/id_rsa",
-      "passphrase": "${SSH_KEY_PWD}",
+      "passphrase": "${SSH_KEY_PASSPHRASE}",
       "workingDirectories": {
-        "logs": { "path": "/var/log/nginx", "desc": "Nginx access logs" }
-      },
-      "proxyJump": {
-        "host": "bastion.example.com",
-        "username": "jumpuser"
+        "app": {
+          "path": "/srv/app",
+          "desc": "Application root"
+        },
+        "logs": {
+          "path": "/var/log/nginx",
+          "desc": "Nginx logs"
+        }
       }
     }
   }
 }
 ```
 
----
+Global settings:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `logDir` | string | Directory for file logs. Supports environment variables such as `${HOME}`. |
+| `commandBlacklist` | string[] | Regex patterns for prohibited command strings. |
+| `commandWhitelist` | string[] | Regex patterns for trusted final commands that can skip confirmation. |
+| `defaultTimeout` | number | Command timeout in milliseconds. Defaults to `60000`. |
+| `servers` | object | Server configs keyed by server alias. |
+
+Server fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `desc` | string | Human-readable server purpose shown to agents. |
+| `host` | string | SSH hostname or IP. Supports environment variables. |
+| `port` | number | SSH port. Defaults to `22`. |
+| `username` | string | SSH username. |
+| `password` | string | SSH password. Prefer `${VAR}` placeholders. |
+| `privateKeyPath` | string | Path to a private key file. |
+| `passphrase` | string | Private key passphrase. Prefer `${VAR}` placeholders. |
+| `readOnly` | boolean | Disables write and modify tools for this server. |
+| `strictHostKeyChecking` | boolean | Set to `false` only when you intentionally accept host key bypass. |
+| `workingDirectories` | object | Named path aliases with `{ path, desc }`. |
+| `proxyJump` | object | Optional jump host config. |
+
+## MCP Tools
+
+Use `list_tools` from your MCP client for the exact schema exposed by the installed version.
+
+Discovery and core:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_servers` | List configured SSH servers, hosts, and descriptions. |
+| `ping_server` | Test whether one server config is reachable. |
+| `list_working_directories` | List named path aliases for one server. |
+| `check_dependencies` | Check whether specific binaries exist on the remote server. |
+| `execute_batch` | Run a sequence of tool calls in one persistent SSH session. |
+
+System:
+
+| Tool | Purpose |
+| --- | --- |
+| `get_system_info` | Return current user, uptime, kernel, and memory summary. |
+| `hostname` | Show the remote hostname. |
+| `id` | Show current user and group identity. |
+| `uname` | Show kernel and operating system information. |
+| `uptime` | Show uptime and load averages. |
+| `free` | Show memory usage. |
+| `env` | Show remote environment variables. |
+| `pwd` | Show the current remote directory. |
+| `cd` | Change directory inside an `execute_batch` session. |
+
+Shell and files:
+
+| Tool | Purpose |
+| --- | --- |
+| `execute_command` | Run exactly one shell command segment with confirmation unless whitelisted. |
+| `echo` | Print text or variables. |
+| `upload_file` | Upload a local file to the remote server. |
+| `download_file` | Download a remote file to the local machine. |
+| `ll` | List files with detailed information. |
+| `cat` | Read a text file. |
+| `head` | Read the first lines of a file. |
+| `tail` | Read the last lines of a file or log. |
+| `sed` | Read an inclusive line range from a text file. |
+| `grep` | Search for a regex pattern in one file. |
+| `grep_r` | Search recursively under a directory tree. |
+| `edit_text_file` | Create or overwrite a text file. |
+| `touch` | Create an empty file or update timestamps. |
+| `mkdir` | Create a directory, with optional parent creation. |
+| `mv` | Move or rename a file or directory. |
+| `cp` | Copy a file or directory. |
+| `append_text_file` | Append text to a file, creating it if needed. |
+| `replace_in_file` | Replace literal text in a file. |
+| `rm_safe` | Remove a file or directory through the guarded delete path. |
+| `find` | Find files or directories by name, type, depth, or path pattern. |
+
+Git:
+
+| Tool | Purpose |
+| --- | --- |
+| `git_status` | Show repository status. |
+| `git_fetch` | Fetch remote refs. |
+| `git_pull` | Pull latest changes. |
+| `git_switch` | Switch or create a branch. |
+| `git_branch` | List local or all branches. |
+| `git_log` | Show recent commit history. |
+
+Docker and Compose:
+
+| Tool | Purpose |
+| --- | --- |
+| `docker_compose_up` | Start or deploy a compose stack. |
+| `docker_compose_down` | Stop and remove a compose stack. |
+| `docker_compose_stop` | Stop compose services. |
+| `docker_compose_logs` | Read compose logs. |
+| `docker_compose_restart` | Restart a compose stack. |
+| `docker_compose_pull` | Pull images for a compose stack. |
+| `docker_compose_ps` | List compose services and state. |
+| `docker_compose_config` | Render the resolved compose configuration. |
+| `docker_compose_exec` | Run a process inside a compose service container. |
+| `docker_ps` | List Docker containers. |
+| `docker_images` | List Docker images. |
+| `docker_exec` | Run a process inside a container. |
+| `docker_inspect` | Inspect a container, image, volume, or network. |
+| `docker_stats` | Show container resource usage. |
+| `docker_pull` | Pull an image. |
+| `docker_cp` | Copy files between container and remote filesystem. |
+| `docker_stop` | Stop containers. |
+| `docker_rm` | Remove containers. |
+| `docker_start` | Start containers. |
+| `docker_restart` | Restart containers. |
+| `docker_rmi` | Remove images. |
+| `docker_commit` | Create an image from container changes. |
+| `docker_logs` | Read container logs. |
+| `docker_load` | Load an image from a tar archive. |
+| `docker_save` | Save an image to a tar archive. |
+| `docker_build` | Build an image from a build context. |
+
+Services and network:
+
+| Tool | Purpose |
+| --- | --- |
+| `systemctl_status` | Check systemd service status. |
+| `systemctl_restart` | Restart a systemd service. |
+| `systemctl_start` | Start a systemd service. |
+| `systemctl_stop` | Stop a systemd service. |
+| `systemctl_enable` | Enable a systemd service at boot. |
+| `systemctl_disable` | Disable a systemd service at boot. |
+| `ip_addr` | Show network interface addresses. |
+| `ip_route` | Show routing table information. |
+| `mount` | Show mounted filesystems. |
+| `journalctl` | Read systemd journal logs. |
+| `firewall_cmd` | Run structured firewall operations. |
+| `netstat` | Inspect ports and network connections. |
+| `ss` | Inspect socket statistics. |
+| `ping_host` | Ping a host. |
+| `traceroute` | Trace the network path to a host. |
+| `nslookup` | Resolve DNS with `nslookup`. |
+| `dig` | Resolve DNS records with `dig`. |
+| `curl_http` | Perform a structured HTTP request. |
+
+Stats, process, and archive tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `nvidia_smi` | Show GPU status when `nvidia-smi` exists. |
+| `ps` | Show a process snapshot. |
+| `pgrep` | Find process IDs by pattern. |
+| `kill_process` | Send a signal to a process. |
+| `df_h` | Show filesystem disk usage. |
+| `df_inode` | Show filesystem inode usage. |
+| `du_sh` | Estimate directory size. |
+| `which` | Resolve an executable path. |
+| `lsof` | Inspect open files, ports, or process-file relationships. |
+| `file` | Detect file type and encoding. |
+| `stat` | Show file metadata. |
+| `chmod` | Change file mode bits. |
+| `chown` | Change file owner or group. |
+| `ln` | Create a link, usually a symlink. |
+| `tar_create` | Create a tar archive. |
+| `tar_extract` | Extract a tar archive. |
+| `zip` | Create a zip archive. |
+| `unzip` | Extract a zip archive. |
+
+## Safety Model
+
+High-risk operations return a pending result with a `confirmationId`. The agent must call the same tool again with the same parameters plus `confirmationId` and `confirmExecution: true` after the user approves the operation.
+
+The server checks that the confirmed parameters match the original request before executing.
+
+`execute_command` accepts only one shell command segment. It rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. Use `execute_batch` or built-in structured tools for multi-step workflows.
+
+`commandBlacklist` blocks prohibited final command strings. `commandWhitelist` can skip confirmation only for trusted final command strings that match configured regex patterns.
+
+For destructive or modifying work, prefer built-in tools such as `mkdir`, `edit_text_file`, `replace_in_file`, `docker_compose_restart`, or `systemctl_restart` over free-form shell commands.
+
+## Recommended Workflow
+
+1. Call `list_servers` and choose the target by alias and description.
+2. Call `ping_server` before work that depends on connectivity.
+3. Call `list_working_directories` when a task refers to a project, logs, or deployment path.
+4. Use read-only tools first to inspect state.
+5. For changes, use built-in structured tools and let the confirmation flow gate execution.
+6. Verify the result with a read-only follow-up command or inspection tool.
+
+## Skill Integration
+
+This repository includes an SSH MCP skill for agents:
+
+- Skill path: `skills/ssh-mcp/SKILL.md`
+
+Use it when your agent supports skills. It standardizes server discovery, safe command selection, confirmation behavior, and post-action verification.
 
 ## MCP Client Configuration
 
-The following examples show how to register this MCP server in common AI clients. Replace the config path with your own local file path. To keep the setup portable, the examples below intentionally avoid absolute paths.
-
-### Codex
-
-`~/.codex/config.toml`
+Codex:
 
 ```toml
 [mcp_servers.ssh]
@@ -137,9 +303,7 @@ command = "mcp-ssh-service"
 args = ["--config", "./config.json"]
 ```
 
-### Gemini CLI
-
-`~/.gemini/settings.json`
+Gemini CLI:
 
 ```json
 {
@@ -147,18 +311,13 @@ args = ["--config", "./config.json"]
     "ssh": {
       "type": "stdio",
       "command": "mcp-ssh-service",
-      "args": [
-        "--config",
-        "./config.json"
-      ]
+      "args": ["--config", "./config.json"]
     }
   }
 }
 ```
 
-### Claude Code
-
-`~/.claude.json`
+Claude Code:
 
 ```json
 {
@@ -166,161 +325,26 @@ args = ["--config", "./config.json"]
     "ssh": {
       "type": "stdio",
       "command": "mcp-ssh-service",
-      "args": [
-        "--config",
-        "./config.json"
-      ]
+      "args": ["--config", "./config.json"]
     }
   }
 }
 ```
 
----
+## Development
 
-## 🛠️ Integrated Toolset (79 Tools)
+```bash
+npm install
+npm run build
+npm test
+```
 
-### Discovery & Core (8)
-* `list_servers`
-* `ping_server`
-* `list_working_directories`
-* `check_dependencies`
-* `get_system_info`
-* `pwd`
-* `cd`
-* `execute_batch` [Auth Required if any sub-command is high-risk]
+Run the built server:
 
-### System (9)
-* `get_system_info`
-* `hostname`
-* `id`
-* `uname`
-* `uptime`
-* `free`
-* `env`
-* `pwd`
-* `cd`
+```bash
+node dist/index.js --config ./config.json
+```
 
-### Shell & Basic (2)
-* `execute_command` [Auth Required, single command only]
-* `echo`
+## License
 
-### File Management (18)
-* `upload_file` [Auth Required]
-* `download_file`
-* `ll`
-* `cat`
-* `head`
-* `tail`
-* `sed`
-* `grep`
-* `grep_r`
-* `edit_text_file` [Auth Required]
-* `touch`
-* `mkdir` [Auth Required]
-* `mv` [Auth Required]
-* `cp` [Auth Required]
-* `append_text_file` [Auth Required]
-* `replace_in_file` [Auth Required]
-* `rm_safe` [Auth Required]
-* `find`
-
-### Git (6)
-* `git_status`
-* `git_fetch` [Auth Required]
-* `git_pull` [Auth Required]
-* `git_switch` [Auth Required]
-* `git_branch`
-* `git_log`
-
-### Docker & Compose (26)
-* `docker_compose_up` [Auth Required]
-* `docker_compose_down` [Auth Required]
-* `docker_compose_stop` [Auth Required]
-* `docker_compose_logs`
-* `docker_compose_restart` [Auth Required]
-* `docker_compose_pull` [Auth Required]
-* `docker_compose_ps`
-* `docker_compose_config`
-* `docker_compose_exec` [Auth Required]
-* `docker_ps`
-* `docker_images`
-* `docker_exec` [Auth Required]
-* `docker_inspect`
-* `docker_stats`
-* `docker_pull` [Auth Required]
-* `docker_cp` [Auth Required]
-* `docker_stop` [Auth Required]
-* `docker_rm` [Auth Required]
-* `docker_start` [Auth Required]
-* `docker_restart` [Auth Required]
-* `docker_rmi` [Auth Required]
-* `docker_commit` [Auth Required]
-* `docker_logs`
-* `docker_load` [Auth Required]
-* `docker_save` [Auth Required]
-* `docker_build` [Auth Required, supports `networkHost` for `--network=host`]
-
-### Service & Network (18)
-* `systemctl_status`
-* `systemctl_restart` [Auth Required]
-* `systemctl_start` [Auth Required]
-* `systemctl_stop` [Auth Required]
-* `systemctl_enable` [Auth Required]
-* `systemctl_disable` [Auth Required]
-* `ip_addr`
-* `ip_route`
-* `mount`
-* `journalctl`
-* `firewall_cmd` [Auth Required, structured actions only]
-* `netstat` [uses `args: string[]`]
-* `ss` [uses `args: string[]`]
-* `ping_host`
-* `traceroute`
-* `nslookup`
-* `dig`
-* `curl_http` [Auth Required]
-
-### Stats & Process (19)
-* `nvidia_smi`
-* `ps`
-* `pgrep`
-* `kill_process` [Auth Required]
-* `df_h`
-* `df_inode`
-* `du_sh`
-* `which`
-* `lsof`
-* `file`
-* `stat`
-* `chmod` [Auth Required]
-* `chown` [Auth Required]
-* `ln` [Auth Required]
-* `tar_create` [Auth Required]
-* `tar_extract` [Auth Required]
-* `zip` [Auth Required]
-* `unzip` [Auth Required]
-
-Total: 103 tools.
-
----
-
-## 🔐 The Confirmation Workflow
-
-1.  **Request**: AI calls `execute_command({ command: 'systemctl restart nginx' })`.
-2.  **Intercept**: Server returns `status: "pending"` with a `confirmationId`.
-3.  **Human Input**: You review the action in your chat client and approve.
-4.  **Execution**: AI calls `execute_command` again with the `confirmationId` and `confirmExecution: true`.
-5.  **Verify**: Server ensures parameters match exactly and executes the SSH command.
-
-If a high-risk tool's final command string matches `commandWhitelist`, the server skips the pending confirmation step and runs it directly. For `execute_batch`, only non-whitelisted high-risk sub-commands keep the batch in the confirmation flow.
-
-`execute_command` is limited to one shell command segment. The server rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. For built-in tools, user-provided parameters are shell-escaped before execution to reduce command injection risk.
-
-`firewall_cmd` no longer accepts a free-form shell fragment. Use structured fields such as `action`, `port`, `zone`, `permanent`, and `listTarget`. `netstat` now accepts `args: string[]` so each option is validated as an individual token.
-
-Use `mkdir` for directory creation instead of `execute_command "mkdir ..."`. Set `parents: true` when you need `mkdir -p` behavior.
-
----
-
-## 📄 License
-Released under the [MIT License](./LICENSE).
+MIT. See [LICENSE](LICENSE).

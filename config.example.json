@@ -1,4 +1,4 @@
-﻿{
+{
   "logDir": "./logs",
   "commandBlacklist": [
     "^apt-get upgrade",
@@ -19,7 +19,10 @@
       "passphrase": "${SSH_KEY_PWD}",
       "strictHostKeyChecking": false,
       "workingDirectories": {
-        "html": { "path": "/var/www/html", "desc": "Nginx Root" }
+        "html": {
+          "path": "/var/www/html",
+          "desc": "Nginx Root"
+        }
       },
       "proxyJump": {
         "host": "bastion.example.com",
@@ -37,7 +40,7 @@
       "desc": "Read-only Test Database",
       "host": "192.168.1.50",
       "username": "tester",
-      "password": "password123",
+      "password": "${TEST_DB_PASSWORD}",
       "readOnly": true
     }
   }
