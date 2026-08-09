@@ -8,7 +8,8 @@
     "mcp-ssh-service": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "scripts": {
     "build": "tsc",
@@ -38,7 +39,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ajv": "^8.20.0",
     "ssh2": "^1.15.0",
     "winston": "^3.11.0"
   },

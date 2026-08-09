@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { ToolHandlers } from '../dist/tools/handlers.js';
 import { SSHClient } from '../dist/ssh.js';
+import { ConfigManager } from '../dist/config.js';
+import { ConfirmationManager } from '../dist/core/confirmation.js';
 
 /**
  * Build a lightweight config manager stub for ToolHandlers tests.
@@ -10,7 +17,8 @@ import { SSHClient } from '../dist/ssh.js';
 function createConfigManager({
   blacklist = [],
   whitelist = [],
-  readOnly = false
+  readOnly = false,
+  allowedRemoteRoots
 } = {}) {
   return {
     getServerConfig(alias) {
@@ -22,7 +30,8 @@ function createConfigManager({
         host: '127.0.0.1',
         port: 22,
         username: 'tester',
-        readOnly
+        readOnly,
+        allowedRemoteRoots
       };
     },
     getGlobalBlacklist() {
@@ -33,6 +42,9 @@ function createConfigManager({
     },
     getDefaultTimeout() {
       return 1000;
+    },
+    getAllowedLocalRoots() {
+      return [process.cwd()];
     }
   };
 }
@@ -515,7 +527,7 @@ test('head should reject non-positive line counts', async () => {
         filePath: '/tmp/app.log',
         lines: 0
       }),
-    /positive integer/
+    /must be >= 1/
   );
 });
 
@@ -1233,4 +1245,156 @@ test('read-only server should reject execute_batch even when write sub-commands 
       }),
     /read-only/
   );
+});
+
+test('runtime schema should reject numeric command injection before SSH execution', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  let executed = false;
+  await withMockedSsh({
+    async executeCommand() {
+      executed = true;
+      return { stdout: '', stderr: '', code: 0, signal: null };
+    }
+  }, async () => {
+    await assert.rejects(() => handlers.handleTool('ping_host', {
+      serverAlias: 'test-server', host: '127.0.0.1', count: '1; id'
+    }), /Invalid arguments/);
+  });
+  assert.equal(executed, false);
+});
+
+test('runtime schema should reject unknown properties', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  await assert.rejects(() => handlers.handleTool('hostname', {
+    serverAlias: 'test-server', unexpected: true
+  }), /additional properties/);
+});
+
+test('execute_command blacklist should inspect quoted interpreter payloads', async () => {
+  const handlers = new ToolHandlers(createConfigManager({ whitelist: ['.*'] }));
+  await assert.rejects(() => handlers.handleTool('execute_command', {
+    serverAlias: 'test-server', command: "sh -c 'rm -rf /'"
+  }), /Security Violation/);
+});
+
+test('execute_command should reject alternate recursive rm flag spellings', async () => {
+  const handlers = new ToolHandlers(createConfigManager({ whitelist: ['.*'] }));
+  await assert.rejects(() => handlers.handleTool('execute_command', {
+    serverAlias: 'test-server', command: 'rm --recursive --force /'
+  }), /use rm_safe/);
+});
+
+test('rm_safe should normalize traversal before restricted-path checks', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  await assert.rejects(() => handlers.handleTool('rm_safe', {
+    serverAlias: 'test-server', path: '/etc/..', recursive: true
+  }), /restricted path/);
+});
+
+test('rm_safe should resolve the remote target and enforce allowedRemoteRoots at execution time', async () => {
+  const handlers = new ToolHandlers(createConfigManager({
+    whitelist: ['.*'], allowedRemoteRoots: ['/srv/app']
+  }));
+  let command = '';
+  await withMockedSsh({
+    async executeCommand(_config, value) {
+      command = value;
+      return { stdout: '', stderr: '', code: 0, signal: null };
+    }
+  }, () => handlers.handleTool('rm_safe', {
+    serverAlias: 'test-server', path: '/srv/app/link', recursive: true
+  }));
+  assert.match(command, /realpath -m/);
+  assert.match(command, /case "\$target"/);
+  assert.match(command, /rm -rf -- "\$target"/);
+});
+
+test('touch and download_file should be blocked on read-only servers', async () => {
+  const handlers = new ToolHandlers(createConfigManager({ readOnly: true }));
+  await assert.rejects(() => handlers.handleTool('touch', {
+    serverAlias: 'test-server', filePath: '/tmp/new-file'
+  }), /read-only/);
+  await assert.rejects(() => handlers.handleTool('download_file', {
+    serverAlias: 'test-server', remotePath: '/tmp/source', localPath: './target'
+  }), /read-only/);
+});
+
+test('download_file should require confirmation before writing locally', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  const result = await handlers.handleTool('download_file', {
+    serverAlias: 'test-server', remotePath: '/tmp/source', localPath: './target'
+  });
+  assert.equal(result.status, 'pending');
+});
+
+test('download_file should reject confirmed writes outside allowedLocalRoots', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  const args = { serverAlias: 'test-server', remotePath: '/tmp/source', localPath: '/tmp/outside-target' };
+  const pending = await handlers.handleTool('download_file', args);
+  await assert.rejects(() => handlers.handleTool('download_file', {
+    ...args, confirmationId: pending.confirmationId, confirmExecution: true
+  }), /outside allowedLocalRoots/);
+});
+
+test('SSH config should require and verify SHA-256 host fingerprints by default', () => {
+  assert.throws(() => SSHClient.getBaseConnectConfig({
+    host: 'example.test', port: 22, username: 'user'
+  }), /hostKeySha256 is not configured/);
+
+  const key = Buffer.from('test-host-key');
+  const expected = `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
+  const config = SSHClient.getBaseConnectConfig({
+    host: 'example.test', port: 22, username: 'user', hostKeySha256: expected
+  });
+  assert.equal(config.hostVerifier(key), true);
+  assert.equal(config.hostVerifier(Buffer.from('different-key')), false);
+});
+
+test('executeOnConn should shell-escape cwd and cap captured output', async () => {
+  let executedCommand = '';
+  const conn = {
+    exec(command, callback) {
+      executedCommand = command;
+      const stream = new EventEmitter();
+      stream.stderr = new EventEmitter();
+      callback(null, stream);
+      queueMicrotask(() => {
+        stream.emit('data', Buffer.alloc(40000, 97));
+        stream.emit('close', 0, null);
+      });
+    },
+    end() {}
+  };
+  const result = await SSHClient.executeOnConn(conn, 'pwd', '/tmp; id', 1000);
+  assert.equal(executedCommand, "cd -- '/tmp; id' && pwd");
+  assert.equal(result.stdoutTruncated, true);
+  assert.ok(Buffer.byteLength(result.stdout) < 30100);
+});
+
+test('ConfigManager should fail closed for unresolved environment variables and invalid regex', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-ssh-config-test-'));
+  try {
+    const configPath = path.join(tempDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      servers: {
+        test: { host: '127.0.0.1', username: 'tester', password: '${MCP_SSH_TEST_MISSING_ENV}' }
+      }
+    }));
+    assert.throws(() => new ConfigManager(configPath), /environment variable/);
+
+    fs.writeFileSync(configPath, JSON.stringify({ commandBlacklist: ['['], servers: {} }));
+    assert.throws(() => new ConfigManager(configPath), /invalid regular expression/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('ConfirmationManager should keep an immutable snapshot of pending arguments', () => {
+  const manager = new ConfirmationManager();
+  const args = { serverAlias: 'test-server', path: '/srv/app/one' };
+  const id = manager.createPending('rm_safe', 'test-server', args);
+  args.path = '/srv/app/two';
+  assert.equal(manager.validateAndPop(id, 'rm_safe', 'test-server', {
+    serverAlias: 'test-server', path: '/srv/app/two', confirmationId: id, confirmExecution: true
+  }), false);
 });

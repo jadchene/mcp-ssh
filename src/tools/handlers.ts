@@ -1,12 +1,18 @@
 ﻿import { SSHClient } from '../ssh.js';
 import { ConfigManager, ServerConfig } from '../config.js';
-import { confirmationManager } from '../core/confirmation.js';
+import { ConfirmationManager } from '../core/confirmation.js';
+import { validateToolArguments } from './validation.js';
+import { toolDefinitions } from './definitions.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const WRITE_TOOLS = [
+const WRITE_TOOLS = new Set([
   'execute_command',
   'upload_file',
+  'download_file',
   'edit_text_file',
   'append_text_file',
+  'touch',
   'mkdir',
   'mv',
   'cp',
@@ -48,7 +54,31 @@ const WRITE_TOOLS = [
   'zip',
   'unzip',
   'curl_http'
-];
+]);
+
+const READ_TOOLS = new Set([
+  'list_servers', 'ping_server', 'list_working_directories', 'check_dependencies',
+  'get_system_info', 'hostname', 'id', 'uname', 'uptime', 'free', 'env', 'pwd', 'cd', 'echo',
+  'll', 'cat', 'head', 'tail', 'sed', 'grep', 'grep_r', 'find',
+  'git_status', 'git_branch', 'git_log',
+  'docker_compose_logs', 'docker_compose_ps', 'docker_compose_config',
+  'docker_ps', 'docker_images', 'docker_inspect', 'docker_stats', 'docker_logs',
+  'systemctl_status', 'ip_addr', 'ip_route', 'mount', 'journalctl', 'netstat', 'ss',
+  'ping_host', 'traceroute', 'nslookup', 'dig', 'nvidia_smi', 'ps', 'pgrep',
+  'df_h', 'df_inode', 'du_sh', 'which', 'lsof', 'file', 'stat'
+]);
+
+for (const { name } of toolDefinitions) {
+  if (name === 'execute_batch') continue;
+  if (WRITE_TOOLS.has(name) === READ_TOOLS.has(name)) {
+    throw new Error(`Tool effect classification is missing or ambiguous for '${name}'.`);
+  }
+}
+
+function isWriteTool(name: string): boolean {
+  if (!WRITE_TOOLS.has(name) && !READ_TOOLS.has(name)) throw new Error(`Unknown tool effect for '${name}'.`);
+  return WRITE_TOOLS.has(name);
+}
 
 const DEFAULT_BLACKLIST = [
   /rm\s+-(rf|fr|r|f)\s+\//i,
@@ -61,6 +91,8 @@ const DEFAULT_BLACKLIST = [
 ];
 
 export class ToolHandlers {
+  private confirmationManager = new ConfirmationManager();
+
   constructor(private configManager: ConfigManager) {}
 
   /**
@@ -154,9 +186,16 @@ export class ToolHandlers {
     }
   }
 
-  private checkBlacklist(command: string) {
+  private checkBlacklist(command: string, inspectQuotedPayloads = false) {
     const userBlacklist = this.compileUserPatterns(this.configManager.getGlobalBlacklist());
-    const normalizedCommand = this.stripQuotedLiterals(command);
+    const normalizedCommand = inspectQuotedPayloads ? command : this.stripQuotedLiterals(command);
+
+    // Free-form execution must use rm_safe for deletion. Blocking the rm
+    // executable itself avoids flag spelling/order and interpreter-wrapper
+    // bypasses such as `rm --recursive --force /` or `sh -c 'rm -rf /'`.
+    if (inspectQuotedPayloads && /(?:^|[\s'"()])(?:command\s+|sudo\s+)?rm(?:\s|$)/i.test(command)) {
+      throw new Error(`Security Violation: execute_command cannot invoke rm; use rm_safe.`);
+    }
 
     for (const pattern of DEFAULT_BLACKLIST) {
       if (pattern.test(normalizedCommand)) {
@@ -194,8 +233,8 @@ export class ToolHandlers {
    * Resolve the exact shell command string that will be executed for command-based
    * tools so that security rules operate on the same final text.
    */
-  private getExecutableCommand(name: string, params: any): string {
-    let command = this.getCommandForTool(name, params);
+  private getExecutableCommand(name: string, params: any, srv?: ServerConfig): string {
+    let command = this.getCommandForTool(name, params, srv);
     if (!command) return '';
     if (params.grep) {
       this.validateShellFragment(params.grep, 'grep');
@@ -208,16 +247,16 @@ export class ToolHandlers {
    * Determine whether the current tool invocation still needs confirmation after
    * command whitelist rules are applied to the final executable command.
    */
-  private requiresConfirmation(name: string, params: any): boolean {
+  private requiresConfirmation(name: string, params: any, srv: ServerConfig): boolean {
     if (name !== 'execute_batch') {
-      if (!WRITE_TOOLS.includes(name)) return false;
-      const command = this.getExecutableCommand(name, params);
+      if (!isWriteTool(name)) return false;
+      const command = this.getExecutableCommand(name, params, srv);
       return command ? !this.isCommandWhitelisted(command) : true;
     }
 
     return params.commands?.some((cmd: any) => {
-      if (!WRITE_TOOLS.includes(cmd.name)) return false;
-      const command = this.getExecutableCommand(cmd.name, cmd.arguments);
+      if (!isWriteTool(cmd.name)) return false;
+      const command = this.getExecutableCommand(cmd.name, cmd.arguments, srv);
       return command ? !this.isCommandWhitelisted(command) : true;
     }) ?? false;
   }
@@ -228,17 +267,17 @@ export class ToolHandlers {
    */
   private isWriteToolCall(name: string, params: any): boolean {
     if (name !== 'execute_batch') {
-      return WRITE_TOOLS.includes(name);
+      return isWriteTool(name);
     }
 
-    return params.commands?.some((cmd: any) => WRITE_TOOLS.includes(cmd.name)) ?? false;
+    return params.commands?.some((cmd: any) => isWriteTool(cmd.name)) ?? false;
   }
 
   /**
    * Apply blacklist validation to every command-bearing tool invocation before
    * confirmation and execution.
    */
-  private validateToolCommand(name: string, params: any) {
+  private validateToolCommand(name: string, params: any, srv: ServerConfig) {
     if (name === 'execute_command') {
       this.validateSingleCommand(params.command);
     }
@@ -287,13 +326,13 @@ export class ToolHandlers {
         this.validateShellFragment(header, `curl_http.headers[${index}]`);
       }
     }
-    const command = this.getExecutableCommand(name, params);
+    const command = this.getExecutableCommand(name, params, srv);
     if (command) {
-      this.checkBlacklist(command);
+      this.checkBlacklist(command, name === 'execute_command');
     }
   }
 
-  private getCommandForTool(name: string, params: any): string {
+  private getCommandForTool(name: string, params: any, srv?: ServerConfig): string {
     switch (name) {
       case 'get_system_info': return 'echo "USER: $(whoami)"; echo "UPTIME: $(uptime)"; echo "KERNEL: $(uname -a)"; echo "MEMORY:"; free -m';
       case 'hostname': return 'hostname';
@@ -336,9 +375,8 @@ export class ToolHandlers {
         return `SEARCH_B64=${this.shellEscape(searchB64)} REPLACE_B64=${this.shellEscape(replaceB64)} perl -0i -M MIME::Base64 -pe ${this.shellEscape(`BEGIN { $s = decode_base64($ENV{SEARCH_B64}); $r = decode_base64($ENV{REPLACE_B64}); } s/\\Q$s\\E/$r/${replaceFlag}`)} ${this.shellEscape(params.filePath)}`;
       }
       case 'rm_safe':
-        const restricted = ['/', '/etc', '/usr', '/bin', '/var', '/root', '/home'];
-        if (restricted.includes(params.path.trim())) throw new Error(`RM_SAFE: Denied for restricted directory.`);
-        return `rm ${params.recursive ? '-rf' : '-f'} ${this.shellEscape(params.path)}`;
+        if (!srv) throw new Error(`RM_SAFE: Server context is required.`);
+        return this.buildSafeRemoveCommand(srv, params.path, params.recursive);
       case 'echo': return `echo ${this.shellEscape(params.text)}`;
       case 'find':
         return `find ${this.shellEscape(params.path)}${params.maxDepth !== undefined ? ` -maxdepth ${params.maxDepth}` : ''}${params.type ? ` -type ${params.type}` : ''}${params.name ? ` -name ${this.shellEscape(params.name)}` : ''}${params.pathPattern ? ` -path ${this.shellEscape(params.pathPattern)}` : ''}`;
@@ -504,6 +542,8 @@ export class ToolHandlers {
   }
 
   public async handleTool(name: string, args: any): Promise<any> {
+    validateToolArguments(name, args);
+
     if (name === 'list_servers') {
       const servers = this.configManager.getAllServers();
       if (Object.keys(servers).length === 0) return "No servers configured.";
@@ -525,17 +565,19 @@ export class ToolHandlers {
       }
     }
 
-    this.validateToolCommand(name, params);
+    if (name === 'rm_safe') this.validateDeletePath(srv, params.path);
+
+    this.validateToolCommand(name, params, srv);
 
     if (name === 'execute_batch') {
       for (const cmd of params.commands || []) {
-        this.validateToolCommand(cmd.name, cmd.arguments);
+        this.validateToolCommand(cmd.name, cmd.arguments, srv);
       }
     }
 
     // --- Confirmation Logic ---
     const isWriteToolCall = this.isWriteToolCall(name, params);
-    const isWriteAction = this.requiresConfirmation(name, params);
+    const isWriteAction = this.requiresConfirmation(name, params, srv);
 
     if (isWriteToolCall && srv.readOnly) {
       throw new Error(`Server '${serverAlias}' is read-only.`);
@@ -543,10 +585,10 @@ export class ToolHandlers {
 
     if (isWriteAction) {
       if (confirmationId && confirmExecution === true) {
-        const isValid = confirmationManager.validateAndPop(confirmationId, name, serverAlias, args);
+        const isValid = this.confirmationManager.validateAndPop(confirmationId, name, serverAlias, args);
         if (!isValid) throw new Error("Invalid or expired confirmationId. Please try again.");
       } else {
-        const newId = confirmationManager.createPending(name, serverAlias, args);
+        const newId = this.confirmationManager.createPending(name, serverAlias, args);
         return {
           status: "pending",
           confirmationId: newId,
@@ -565,11 +607,11 @@ export class ToolHandlers {
       return await SSHClient.runSession(srv, async (conn) => {
         for (const cmd of commands) {
           if (cmd.name === 'cd') {
-            currentBatchCwd = cmd.arguments.path;
+            currentBatchCwd = this.resolveCwd(srv, cmd.arguments.path);
             results.push(`Directory changed to: ${currentBatchCwd}`);
             continue;
           }
-          let cmdStr = this.getExecutableCommand(cmd.name, cmd.arguments);
+          let cmdStr = this.getExecutableCommand(cmd.name, cmd.arguments, srv);
           if (!cmdStr) { results.push(`[${cmd.name}] Error: Not supported in batch.`); continue; }
           const res = await SSHClient.executeOnConn(conn, cmdStr, currentBatchCwd, timeout);
           results.push(`[${cmd.name}]\n${res.stdout}${res.stderr ? '\n[STDERR]\n' + res.stderr : ''}`);
@@ -590,15 +632,17 @@ export class ToolHandlers {
     }
 
     if (name === 'upload_file') {
-      await SSHClient.uploadFile(srv, params.localPath, params.remotePath);
+      const localPath = this.resolveAllowedLocalPath(params.localPath, true);
+      await SSHClient.uploadFile(srv, localPath, params.remotePath, timeout);
       return `Successfully uploaded ${params.localPath} to ${params.remotePath}`;
     }
     if (name === 'download_file') {
-      await SSHClient.downloadFile(srv, params.remotePath, params.localPath);
+      const localPath = this.resolveAllowedLocalPath(params.localPath, false);
+      await SSHClient.downloadFile(srv, params.remotePath, localPath, timeout);
       return `Successfully downloaded ${params.remotePath} to ${params.localPath}`;
     }
 
-    let commandToRun = this.getExecutableCommand(name, params);
+    let commandToRun = this.getExecutableCommand(name, params, srv);
     if (commandToRun) {
       const res = await SSHClient.executeCommand(srv, commandToRun, cwd, timeout);
       let out = res.stdout;
@@ -608,5 +652,55 @@ export class ToolHandlers {
     }
 
     throw new Error(`Unknown tool: ${name}`);
+  }
+
+  private validateDeletePath(srv: ServerConfig, requestedPath: string) {
+    const trimmed = requestedPath.trim();
+    if (!trimmed) throw new Error(`RM_SAFE: Empty paths are denied.`);
+    if (!path.posix.isAbsolute(trimmed)) throw new Error(`RM_SAFE: Only absolute paths are allowed.`);
+    const normalized = path.posix.resolve('/', trimmed);
+    const restricted = ['/', '/etc', '/usr', '/bin', '/sbin', '/var', '/root', '/home', '/boot', '/dev', '/proc', '/sys'];
+    if (restricted.includes(normalized)) {
+      throw new Error(`RM_SAFE: Denied for restricted path '${normalized}'.`);
+    }
+    const roots = this.getAllowedRemoteRoots(srv);
+    const allowed = roots.some((root) => normalized === root || normalized.startsWith(`${root}/`));
+    if (!allowed) throw new Error(`RM_SAFE: Path is outside allowedRemoteRoots.`);
+  }
+
+  private getAllowedRemoteRoots(srv: ServerConfig): string[] {
+    const roots = (srv.allowedRemoteRoots || []).map((root) => path.posix.resolve('/', root));
+    if (roots.length === 0) throw new Error(`RM_SAFE: Configure allowedRemoteRoots before enabling deletion.`);
+    const forbiddenRoots = ['/', '/etc', '/usr', '/bin', '/sbin', '/var', '/root', '/home', '/boot', '/dev', '/proc', '/sys'];
+    if (roots.some((root) => forbiddenRoots.includes(root))) {
+      throw new Error(`RM_SAFE: allowedRemoteRoots contains a restricted system root.`);
+    }
+    return roots;
+  }
+
+  private buildSafeRemoveCommand(srv: ServerConfig, requestedPath: string, recursive: boolean): string {
+    const roots = this.getAllowedRemoteRoots(srv);
+    const allowedPatterns = roots.map((root) => `${this.shellEscape(root)}|${this.shellEscape(root)}/*`).join('|');
+    return `target=$(realpath -m -- ${this.shellEscape(requestedPath)}) && case "$target" in ${allowedPatterns}) rm ${recursive ? '-rf' : '-f'} -- "$target" ;; *) echo 'RM_SAFE: resolved path denied' >&2; exit 64 ;; esac`;
+  }
+
+  private resolveAllowedLocalPath(requestedPath: string, mustExist: boolean): string {
+    const roots = this.configManager.getAllowedLocalRoots();
+    if (roots.length === 0) throw new Error(`Local file access is disabled. Configure allowedLocalRoots first.`);
+
+    const resolved = path.resolve(requestedPath);
+    const target = mustExist
+      ? fs.realpathSync(resolved)
+      : path.join(fs.realpathSync(path.dirname(resolved)), path.basename(resolved));
+    if (!mustExist && fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) {
+      throw new Error(`Refusing to download through a symbolic link.`);
+    }
+    const allowed = roots.some((root) => {
+      const realRoot = fs.realpathSync(root);
+      const relative = path.relative(realRoot, target);
+      return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    });
+    if (!allowed) throw new Error(`Local path is outside allowedLocalRoots.`);
+    return target;
   }
 }

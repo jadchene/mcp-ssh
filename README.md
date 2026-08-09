@@ -66,12 +66,15 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
 
 If neither is provided, the service tries `config.json` in the current working directory.
 
+Upgrading an existing deployment? Read the [security-hardening configuration migration guide](docs/CONFIG_MIGRATION.md) before starting the new version.
+
 Minimal config:
 
 ```json
 {
   "logDir": "./logs",
   "defaultTimeout": 60000,
+  "allowedLocalRoots": ["./transfer"],
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
@@ -80,8 +83,10 @@ Minimal config:
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
-      "privateKeyPath": "~/.ssh/id_rsa",
+      "privateKeyPath": "${HOME}/.ssh/id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
           "path": "/srv/app",
@@ -105,6 +110,7 @@ Global settings:
 | `commandBlacklist` | string[] | Regex patterns for prohibited command strings. |
 | `commandWhitelist` | string[] | Regex patterns for trusted final commands that can skip confirmation. |
 | `defaultTimeout` | number | Command timeout in milliseconds. Defaults to `60000`. |
+| `allowedLocalRoots` | string[] | Local roots available to upload/download. Relative paths resolve from the config directory; omitted means local file access is disabled. |
 | `servers` | object | Server configs keyed by server alias. |
 
 Server fields:
@@ -120,8 +126,12 @@ Server fields:
 | `passphrase` | string | Private key passphrase. Prefer `${VAR}` placeholders. |
 | `readOnly` | boolean | Disables write and modify tools for this server. |
 | `strictHostKeyChecking` | boolean | Set to `false` only when you intentionally accept host key bypass. |
+| `hostKeySha256` | string or string[] | Required SSH host-key fingerprint(s) when strict checking is enabled (the default). |
+| `allowedRemoteRoots` | string[] | Optional path roots within which `rm_safe` may delete. |
 | `workingDirectories` | object | Named path aliases with `{ path, desc }`. |
 | `proxyJump` | object | Optional jump host config. |
+
+Obtain and verify a host-key fingerprint through a trusted channel before adding it. For example, `ssh-keyscan <host> | ssh-keygen -lf - -E sha256` prints SHA-256 fingerprints, but the scan itself does not authenticate the host.
 
 ## MCP Tools
 

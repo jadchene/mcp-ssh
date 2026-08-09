@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 
 let currentLogDir = process.env.MCP_SSH_LOG_DIR || 'logs';
+let fileLoggingInitialized = false;
 
 export const logger = winston.createLogger({
   level: 'info',
@@ -29,7 +30,7 @@ export const logger = winston.createLogger({
 });
 
 export function updateLogTransports(logDir: string) {
-  if (path.resolve(logDir) === path.resolve(currentLogDir)) {
+  if (fileLoggingInitialized && path.resolve(logDir) === path.resolve(currentLogDir)) {
     return;
   }
   
@@ -48,6 +49,7 @@ export function updateLogTransports(logDir: string) {
     filename: path.join(logDir, 'error.log'), 
     level: 'error' 
   }));
+  fileLoggingInitialized = true;
   logger.add(new winston.transports.File({ 
     filename: path.join(logDir, 'mcp-ssh.log') 
   }));

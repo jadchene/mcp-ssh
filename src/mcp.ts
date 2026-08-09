@@ -13,8 +13,9 @@ import { NAME, VERSION } from "./version.js";
 export class MCPServer {
   private server: Server;
   private handlers: ToolHandlers;
+  private shuttingDown = false;
 
-  constructor(configManager: ConfigManager) {
+  constructor(private configManager: ConfigManager) {
     this.server = new Server(
       {
         name: NAME,
@@ -31,10 +32,9 @@ export class MCPServer {
     this.setupHandlers();
 
     this.server.onerror = (error) => logger.error("[MCP Error]", error);
-    process.on("SIGINT", async () => {
-      await this.server.close();
-      process.exit(0);
-    });
+    const shutdown = () => void this.shutdown();
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
   }
 
   private setupHandlers() {
@@ -44,11 +44,12 @@ export class MCPServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
-        if (!request.params.arguments) {
-          throw new Error("No arguments provided");
-        }
-        logger.info(`Handling tool call: ${request.params.name}`, request.params.arguments);
-        const result = await this.handlers.handleTool(request.params.name, request.params.arguments);
+        const args = request.params.arguments ?? {};
+        logger.info(`Handling tool call: ${request.params.name}`, {
+          argumentKeys: Object.keys(args),
+          serverAlias: typeof args.serverAlias === 'string' ? args.serverAlias : undefined
+        });
+        const result = await this.handlers.handleTool(request.params.name, args);
         
         // Ensure the result is a string for the MCP "text" content type
         const textOutput = typeof result === "string" ? result : JSON.stringify(result, null, 2);
@@ -81,5 +82,15 @@ export class MCPServer {
     await this.server.connect(transport);
     logger.info("MCP SSH Server running on stdio");
   }
-}
 
+  private async shutdown() {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    try {
+      await this.server.close();
+    } finally {
+      this.configManager.close();
+      process.exitCode = 0;
+    }
+  }
+}

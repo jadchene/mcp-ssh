@@ -66,12 +66,15 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
 
 如果两者都没有提供，服务会尝试读取当前工作目录下的 `config.json`。
 
+升级现有部署前，请先阅读[安全加固配置迁移指南](docs/CONFIG_MIGRATION.md)。
+
 最小配置：
 
 ```json
 {
   "logDir": "./logs",
   "defaultTimeout": 60000,
+  "allowedLocalRoots": ["./transfer"],
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
@@ -80,8 +83,10 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
-      "privateKeyPath": "~/.ssh/id_rsa",
+      "privateKeyPath": "${HOME}/.ssh/id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
           "path": "/srv/app",
@@ -105,6 +110,7 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
 | `commandBlacklist` | string[] | 被禁止的命令字符串正则。 |
 | `commandWhitelist` | string[] | 可信最终命令正则，匹配后可跳过确认。 |
 | `defaultTimeout` | number | 命令超时时间，单位毫秒，默认 `60000`。 |
+| `allowedLocalRoots` | string[] | 允许上传/下载访问的本地根目录；相对路径以配置文件目录为基准，省略时禁止本地文件访问。 |
 | `servers` | object | 以服务器别名为 key 的服务器配置。 |
 
 服务器字段：
@@ -120,8 +126,12 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
 | `passphrase` | string | 私钥口令，建议使用 `${VAR}` 占位。 |
 | `readOnly` | boolean | 禁用该服务器的写入和修改工具。 |
 | `strictHostKeyChecking` | boolean | 只有明确接受跳过 host key 校验时才设为 `false`。 |
+| `hostKeySha256` | string 或 string[] | 开启严格校验（默认）时必须配置的 SSH 主机密钥指纹。 |
+| `allowedRemoteRoots` | string[] | `rm_safe` 可执行删除的可选远程路径根目录。 |
 | `workingDirectories` | object | `{ path, desc }` 形式的命名路径别名。 |
 | `proxyJump` | object | 可选跳板机配置。 |
+
+请先通过可信渠道核验主机密钥指纹再写入配置。`ssh-keyscan <host> | ssh-keygen -lf - -E sha256` 可输出 SHA-256 指纹，但扫描动作本身不能证明主机身份。
 
 ## MCP 工具
 

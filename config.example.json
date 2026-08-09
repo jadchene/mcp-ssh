@@ -9,6 +9,9 @@
     "^docker ps$"
   ],
   "defaultTimeout": 60000,
+  "allowedLocalRoots": [
+    "./transfer"
+  ],
   "servers": {
     "prod-web": {
       "desc": "Production Web Server (Jump Host)",
@@ -17,7 +20,9 @@
       "username": "deploy",
       "privateKeyPath": "./id_rsa_prod",
       "passphrase": "${SSH_KEY_PWD}",
-      "strictHostKeyChecking": false,
+      "strictHostKeyChecking": true,
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "allowedRemoteRoots": ["/var/www/html"],
       "workingDirectories": {
         "html": {
           "path": "/var/www/html",
@@ -26,21 +31,26 @@
       },
       "proxyJump": {
         "host": "bastion.example.com",
+        "port": 22,
         "username": "jumpuser",
-        "password": "${JUMP_PWD}"
+        "password": "${JUMP_PWD}",
+        "strictHostKeyChecking": true,
+        "hostKeySha256": "SHA256:REPLACE_WITH_BASTION_FINGERPRINT"
       }
     },
     "direct-ssh": {
       "desc": "Direct SSH with Password",
       "host": "192.168.1.59",
       "username": "root",
-      "password": "${SERVER_PWD}"
+      "password": "${SERVER_PWD}",
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT"
     },
     "test-db": {
       "desc": "Read-only Test Database",
       "host": "192.168.1.50",
       "username": "tester",
       "password": "${TEST_DB_PASSWORD}",
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
       "readOnly": true
     }
   }

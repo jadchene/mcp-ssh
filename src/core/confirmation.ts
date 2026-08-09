@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "../logger.js";
+import { isDeepStrictEqual } from "node:util";
 
 export interface PendingAction {
   toolName: string;
@@ -10,6 +11,7 @@ export interface PendingAction {
 
 const TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_PENDING = 500;
+const MAX_PENDING_PER_SERVER = 100;
 
 export class ConfirmationManager {
   private pending = new Map<string, PendingAction>();
@@ -21,16 +23,20 @@ export class ConfirmationManager {
     if (this.pending.size >= MAX_PENDING) {
       throw new Error("Too many pending confirmations. Please wait or confirm existing ones.");
     }
+    const serverPending = [...this.pending.values()].filter((action) => action.serverAlias === serverAlias).length;
+    if (serverPending >= MAX_PENDING_PER_SERVER) {
+      throw new Error(`Too many pending confirmations for server '${serverAlias}'.`);
+    }
 
     const id = randomUUID();
     this.pending.set(id, {
       toolName,
       serverAlias,
-      args,
+      args: structuredClone(args),
       expiresAt: Date.now() + TTL_MS
     });
 
-    logger.info(`Action pending confirmation [${id}]: ${toolName} on ${serverAlias}`);
+    logger.info(`Action pending confirmation: ${toolName} on ${serverAlias}`);
     return id;
   }
 
@@ -51,7 +57,7 @@ export class ConfirmationManager {
     // Deep compare essential args (excluding the confirmation fields themselves)
     const { confirmationId: _1, confirmExecution: _2, ...currentArgs } = args;
     const { confirmationId: _3, confirmExecution: _4, ...pendingArgs } = action.args;
-    const isArgsMatch = JSON.stringify(currentArgs) === JSON.stringify(pendingArgs);
+    const isArgsMatch = isDeepStrictEqual(currentArgs, pendingArgs);
 
     if (isToolMatch && isServerMatch && isArgsMatch) {
       this.pending.delete(id); // Use once
@@ -70,5 +76,3 @@ export class ConfirmationManager {
     }
   }
 }
-
-export const confirmationManager = new ConfirmationManager();

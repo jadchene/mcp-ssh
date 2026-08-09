@@ -3,8 +3,9 @@
 function baseParams(properties: any = {}, required: string[] = []): Tool['inputSchema'] {
   return {
     type: 'object',
+    additionalProperties: false,
     properties: {
-      serverAlias: { type: 'string', description: 'Unique server key from config.json. Use list_servers to find available keys.' },
+      serverAlias: { type: 'string', minLength: 1, maxLength: 128, description: 'Unique server key from config.json. Use list_servers to find available keys.' },
       ...properties
     },
     required: ['serverAlias', ...required]
@@ -12,19 +13,19 @@ function baseParams(properties: any = {}, required: string[] = []): Tool['inputS
 }
 
 const confirmationParams = {
-  confirmationId: { type: 'string', description: 'The ID returned from the first attempt of a high-risk tool.' },
+  confirmationId: { type: 'string', minLength: 1, maxLength: 128, description: 'The ID returned from the first attempt of a high-risk tool.' },
   confirmExecution: { type: 'boolean', description: 'Set to true to finalize execution after receiving a confirmationId.' }
 };
 
 const grepParam = { grep: { type: 'string', description: 'Filter output using regex pattern.' } };
-const cwdParam = { cwd: { type: 'string', description: 'Execution directory (supports aliases from list_working_directories).' } };
+const cwdParam = { cwd: { type: 'string', minLength: 1, maxLength: 4096, description: 'Execution directory (supports aliases from list_working_directories).' } };
 
 export const toolDefinitions: Tool[] = [
   // --- Discovery (Core) ---
   {
     name: 'list_servers',
     description: 'Discovery tool: List all configured SSH servers, their hosts, and descriptions.',
-    inputSchema: { type: 'object', properties: {} }
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
     name: 'ping_server',
@@ -96,12 +97,15 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({
       commands: {
         type: 'array',
+        minItems: 1,
+        maxItems: 100,
         items: {
           type: 'object',
           properties: {
             name: { type: 'string' },
             arguments: { type: 'object' }
           },
+          additionalProperties: false,
           required: ['name', 'arguments']
         }
       },
@@ -138,10 +142,11 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'download_file',
-    description: 'File transfer (Remote -> Local).',
+    description: 'File transfer (Remote -> Local). REQUIRES CONFIRMATION.',
     inputSchema: baseParams({
       remotePath: { type: 'string' },
-      localPath: { type: 'string' }
+      localPath: { type: 'string' },
+      ...confirmationParams
     }, ['remotePath', 'localPath'])
   },
   {
@@ -157,20 +162,20 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'head',
     description: 'File preview: Reads the first N lines of a file.',
-    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['filePath'])
+    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'integer', minimum: 1, maximum: 10000 }, ...grepParam }, ['filePath'])
   },
   {
     name: 'tail',
     description: 'Log inspection: Reads last N lines of a file.',
-    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['filePath'])
+    inputSchema: baseParams({ filePath: { type: 'string' }, lines: { type: 'integer', minimum: 1, maximum: 10000 }, ...grepParam }, ['filePath'])
   },
   {
     name: 'sed',
     description: 'Line range reading: Reads an inclusive line range from a text file.',
     inputSchema: baseParams({
       filePath: { type: 'string' },
-      startLine: { type: 'number' },
-      endLine: { type: 'number' },
+      startLine: { type: 'integer', minimum: 1, maximum: 10000000 },
+      endLine: { type: 'integer', minimum: 1, maximum: 10000000 },
       ...grepParam
     }, ['filePath', 'startLine', 'endLine'])
   },
@@ -186,9 +191,9 @@ export const toolDefinitions: Tool[] = [
       path: { type: 'string' },
       pattern: { type: 'string' },
       ignoreCase: { type: 'boolean' },
-      beforeContext: { type: 'number' },
-      afterContext: { type: 'number' },
-      context: { type: 'number' },
+      beforeContext: { type: 'integer', minimum: 0, maximum: 10000 },
+      afterContext: { type: 'integer', minimum: 0, maximum: 10000 },
+      context: { type: 'integer', minimum: 0, maximum: 10000 },
       include: { type: 'array', items: { type: 'string' } },
       excludeDir: { type: 'array', items: { type: 'string' } }
     }, ['path', 'pattern'])
@@ -204,8 +209,8 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'touch',
-    description: 'Timestamp/File creation: Updates access time or creates empty file.',
-    inputSchema: baseParams({ filePath: { type: 'string' } }, ['filePath'])
+    description: 'Timestamp/File creation: Updates access time or creates empty file. REQUIRES CONFIRMATION.',
+    inputSchema: baseParams({ filePath: { type: 'string' }, ...confirmationParams }, ['filePath'])
   },
   {
     name: 'mkdir',
@@ -244,7 +249,7 @@ export const toolDefinitions: Tool[] = [
       path: { type: 'string' },
       name: { type: 'string' },
       type: { type: 'string', enum: ['f', 'd', 'l'] },
-      maxDepth: { type: 'number' },
+      maxDepth: { type: 'integer', minimum: 1, maximum: 1000 },
       pathPattern: { type: 'string' },
       ...grepParam
     }, ['path'])
@@ -279,7 +284,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'git_log',
     description: 'Git log: Shows recent commit history.',
-    inputSchema: baseParams({ ...cwdParam, maxCount: { type: 'number' }, oneline: { type: 'boolean' }, path: { type: 'string' } })
+    inputSchema: baseParams({ ...cwdParam, maxCount: { type: 'integer', minimum: 1, maximum: 10000 }, oneline: { type: 'boolean' }, path: { type: 'string' } })
   },
 
   // --- Docker & Compose (Requirements) ---
@@ -301,7 +306,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'docker_compose_logs',
     description: 'View compose logs.',
-    inputSchema: baseParams({ ...cwdParam, lines: { type: 'number' }, ...grepParam }, ['cwd'])
+    inputSchema: baseParams({ ...cwdParam, lines: { type: 'integer', minimum: 1, maximum: 10000 }, ...grepParam }, ['cwd'])
   },
   {
     name: 'docker_compose_restart',
@@ -403,7 +408,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'docker_logs',
     description: 'Get container logs.',
-    inputSchema: baseParams({ container: { type: 'string' }, lines: { type: 'number' }, ...grepParam }, ['container'])
+    inputSchema: baseParams({ container: { type: 'string' }, lines: { type: 'integer', minimum: 1, maximum: 10000 }, ...grepParam }, ['container'])
   },
   {
     name: 'docker_load',
@@ -481,7 +486,7 @@ export const toolDefinitions: Tool[] = [
     description: 'Read systemd journal logs with optional unit, since, until, priority, and follow filters.',
     inputSchema: baseParams({
       unit: { type: 'string' },
-      lines: { type: 'number' },
+      lines: { type: 'integer', minimum: 1, maximum: 10000 },
       since: { type: 'string' },
       until: { type: 'string' },
       priority: { type: 'string' },
@@ -514,12 +519,12 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'ping_host',
     description: 'Ping a host a fixed number of times.',
-    inputSchema: baseParams({ host: { type: 'string' }, count: { type: 'number' } }, ['host'])
+    inputSchema: baseParams({ host: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 100 } }, ['host'])
   },
   {
     name: 'traceroute',
     description: 'Trace the network path to a host.',
-    inputSchema: baseParams({ host: { type: 'string' }, maxHops: { type: 'number' } }, ['host'])
+    inputSchema: baseParams({ host: { type: 'string' }, maxHops: { type: 'integer', minimum: 1, maximum: 255 } }, ['host'])
   },
   {
     name: 'nslookup',
@@ -534,7 +539,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'curl_http',
     description: 'Perform an HTTP request with structured method, URL, headers, and optional body. REQUIRES CONFIRMATION unless the final command is whitelisted.',
-    inputSchema: baseParams({ method: { type: 'string' }, url: { type: 'string' }, headers: { type: 'array', items: { type: 'string' } }, body: { type: 'string' }, timeoutSeconds: { type: 'number' }, followRedirects: { type: 'boolean' }, ...confirmationParams }, ['method', 'url'])
+    inputSchema: baseParams({ method: { type: 'string' }, url: { type: 'string' }, headers: { type: 'array', items: { type: 'string' } }, body: { type: 'string' }, timeoutSeconds: { type: 'integer', minimum: 1, maximum: 3600 }, followRedirects: { type: 'boolean' }, ...confirmationParams }, ['method', 'url'])
   },
 
   // --- Stats & Process (Requirements) ---
@@ -556,7 +561,7 @@ export const toolDefinitions: Tool[] = [
   {
     name: 'kill_process',
     description: 'Send a signal to a process ID. REQUIRES CONFIRMATION unless the final command is whitelisted.',
-    inputSchema: baseParams({ pid: { type: 'number' }, signal: { type: 'string' }, ...confirmationParams }, ['pid'])
+    inputSchema: baseParams({ pid: { type: 'integer', minimum: 1, maximum: 2147483647 }, signal: { type: 'string' }, ...confirmationParams }, ['pid'])
   },
   {
     name: 'df_h',
@@ -584,7 +589,7 @@ export const toolDefinitions: Tool[] = [
     inputSchema: baseParams({
       path: { type: 'string' },
       process: { type: 'string' },
-      port: { type: 'number' },
+      port: { type: 'integer', minimum: 1, maximum: 65535 },
       ...grepParam
     })
   },

@@ -3,12 +3,15 @@ import { ServerConfig, ProxyConfig } from './config.js';
 import { logger } from './logger.js';
 import fs from 'fs';
 import path from 'path';
+import { createHash, randomUUID } from 'node:crypto';
 
 export interface CommandResult {
   stdout: string;
   stderr: string;
   code: number | null;
   signal: string | null;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }
 
 const MAX_OUTPUT_LENGTH = 30000;
@@ -27,7 +30,21 @@ export class SSHClient {
     } else if (srv.password) {
       config.password = srv.password;
     }
+    if (srv.strictHostKeyChecking !== false) {
+      const configured = Array.isArray(srv.hostKeySha256) ? srv.hostKeySha256 : [srv.hostKeySha256].filter(Boolean) as string[];
+      if (configured.length === 0) {
+        throw new Error(`Host key verification is enabled for ${srv.host}, but hostKeySha256 is not configured.`);
+      }
+      config.hostVerifier = (key: Buffer) => {
+        const fingerprint = `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
+        return configured.some((expected) => expected.replace(/=+$/, '') === fingerprint);
+      };
+    }
     return config;
+  }
+
+  private static shellEscape(value: string): string {
+    return `'${String(value).replace(/'/g, `'"'"'`)}'`;
   }
 
   public static truncate(text: string): string {
@@ -41,13 +58,11 @@ export class SSHClient {
   ): Promise<T> {
     const mainConfig = this.getBaseConnectConfig(serverConfig);
     
-    // Support strictHostKeyChecking: false (standard automation practice)
-    if (serverConfig.strictHostKeyChecking === false) {
-      (mainConfig as any).algorithms = { serverHostKey: ['ssh-rsa', 'ssh-dss', 'ecdsa-sha2-nistp256', 'ssh-ed25519'] };
-    }
-
     return new Promise((resolve, reject) => {
       const conn = new Client();
+      let settled = false;
+      const succeed = (value: T) => { if (!settled) { settled = true; resolve(value); } };
+      const fail = (error: unknown) => { if (!settled) { settled = true; reject(error); } };
 
       const connect = () => {
         if (serverConfig.proxyJump) {
@@ -59,13 +74,13 @@ export class SSHClient {
             proxyConn.forwardOut('127.0.0.1', 0, mainConfig.host!, mainConfig.port!, (err, stream) => {
               if (err) {
                 proxyConn.end();
-                return reject(new Error(`Proxy forwarding failed: ${err.message}`));
+                return fail(new Error(`Proxy forwarding failed: ${err.message}`));
               }
               conn.connect({ ...mainConfig, sock: stream });
             });
           }).on('error', (err) => {
             proxyConn.end();
-            reject(new Error(`Proxy connection error: ${err.message}`));
+            fail(new Error(`Proxy connection error: ${err.message}`));
           }).connect(pConfig);
           
           // Ensure proxy closes when main connection closes
@@ -80,14 +95,14 @@ export class SSHClient {
         try {
           const result = await action(conn);
           conn.end();
-          resolve(result);
+          succeed(result);
         } catch (err) {
           conn.end();
-          reject(err);
+          fail(err);
         }
       }).on('error', (err: Error) => {
         logger.error(`SSH Connection Error:`, err);
-        reject(err);
+        fail(err);
       });
 
       connect();
@@ -101,9 +116,24 @@ export class SSHClient {
     timeoutMs: number = 60000
   ): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
-      let stdout = '';
-      let stderr = '';
-      const finalCommand = cwd ? `cd ${cwd} && ${command}` : command;
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let stdoutTruncated = false;
+      let stderrTruncated = false;
+      const finalCommand = cwd ? `cd -- ${this.shellEscape(cwd)} && ${command}` : command;
+
+      const capture = (data: Buffer, chunks: Buffer[], currentBytes: number): { bytes: number; truncated: boolean } => {
+        const remaining = MAX_OUTPUT_LENGTH - currentBytes;
+        if (remaining <= 0) return { bytes: currentBytes, truncated: true };
+        if (data.length > remaining) {
+          chunks.push(data.subarray(0, remaining));
+          return { bytes: MAX_OUTPUT_LENGTH, truncated: true };
+        }
+        chunks.push(data);
+        return { bytes: currentBytes + data.length, truncated: false };
+      };
       
       const timeout = setTimeout(() => {
         conn.end();
@@ -115,18 +145,28 @@ export class SSHClient {
           clearTimeout(timeout);
           return reject(err);
         }
-        stream.on('close', (code: number, signal: string) => {
+        stream.on('error', (streamError: Error) => {
           clearTimeout(timeout);
-          resolve({ 
-            stdout: this.truncate(stdout), 
-            stderr: this.truncate(stderr), 
+          reject(streamError);
+        }).on('close', (code: number, signal: string) => {
+          clearTimeout(timeout);
+          const marker = '\n\n[... Output truncated ...]';
+          resolve({
+            stdout: Buffer.concat(stdoutChunks).toString() + (stdoutTruncated ? marker : ''),
+            stderr: Buffer.concat(stderrChunks).toString() + (stderrTruncated ? marker : ''),
             code, 
-            signal 
+            signal,
+            stdoutTruncated,
+            stderrTruncated
           });
         }).on('data', (data: Buffer) => {
-          stdout += data.toString();
+          const captured = capture(data, stdoutChunks, stdoutBytes);
+          stdoutBytes = captured.bytes;
+          stdoutTruncated ||= captured.truncated;
         }).stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          const captured = capture(data, stderrChunks, stderrBytes);
+          stderrBytes = captured.bytes;
+          stderrTruncated ||= captured.truncated;
         });
       });
     });
@@ -144,7 +184,8 @@ export class SSHClient {
   public static async uploadFile(
     serverConfig: ServerConfig,
     localPath: string,
-    remotePath: string
+    remotePath: string,
+    timeoutMs: number = 60000
   ): Promise<void> {
     return this.runSession(serverConfig, (conn) => {
       return new Promise((resolve, reject) => {
@@ -152,7 +193,21 @@ export class SSHClient {
           if (err) return reject(err);
           const readStream = fs.createReadStream(path.resolve(localPath));
           const writeStream = sftp.createWriteStream(remotePath);
-          writeStream.on('close', resolve).on('error', reject);
+          let settled = false;
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            sftp.end();
+            error ? reject(error) : resolve();
+          };
+          const timeout = setTimeout(() => {
+            readStream.destroy();
+            writeStream.destroy();
+            finish(new Error(`Upload timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+          writeStream.on('close', () => finish()).on('error', finish);
+          readStream.on('error', finish);
           readStream.pipe(writeStream);
         });
       });
@@ -162,15 +217,37 @@ export class SSHClient {
   public static async downloadFile(
     serverConfig: ServerConfig,
     remotePath: string,
-    localPath: string
+    localPath: string,
+    timeoutMs: number = 60000
   ): Promise<void> {
     return this.runSession(serverConfig, (conn) => {
       return new Promise((resolve, reject) => {
         conn.sftp((err, sftp) => {
           if (err) return reject(err);
-          sftp.fastGet(remotePath, path.resolve(localPath), (err) => {
-            if (err) reject(err);
-            else resolve();
+          const resolved = path.resolve(localPath);
+          const tempPath = path.join(path.dirname(resolved), `.${path.basename(resolved)}.${randomUUID()}.part`);
+          let settled = false;
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            sftp.end();
+            if (error) {
+              fs.rmSync(tempPath, { force: true });
+              reject(error);
+              return;
+            }
+            try {
+              fs.renameSync(tempPath, resolved);
+              resolve();
+            } catch (renameError) {
+              fs.rmSync(tempPath, { force: true });
+              reject(renameError);
+            }
+          };
+          const timeout = setTimeout(() => finish(new Error(`Download timed out after ${timeoutMs}ms`)), timeoutMs);
+          sftp.fastGet(remotePath, tempPath, (downloadError) => {
+            finish(downloadError || undefined);
           });
         });
       });
