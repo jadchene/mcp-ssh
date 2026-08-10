@@ -90,10 +90,26 @@ const DEFAULT_BLACKLIST = [
   /reboot/i
 ];
 
+export interface OperationConfirmationPreview {
+  tool: string;
+  server: string;
+  riskLevel: 'normal' | 'high' | 'critical';
+  riskDetails: string;
+  operation: string;
+  message: string;
+}
+
+export type InteractiveConfirmation = (
+  preview: OperationConfirmationPreview
+) => Promise<'yes' | 'no' | 'unavailable'>;
+
 export class ToolHandlers {
   private confirmationManager = new ConfirmationManager();
 
-  constructor(private configManager: ConfigManager) {}
+  constructor(
+    private configManager: ConfigManager,
+    private interactiveConfirmation?: InteractiveConfirmation
+  ) {}
 
   /**
    * Build regex list from config patterns using case-insensitive matching to keep
@@ -541,6 +557,78 @@ export class ToolHandlers {
     return parts.join(' ');
   }
 
+  private getConfirmationRiskLevel(name: string, params: any): 'normal' | 'high' | 'critical' {
+    if (name === 'execute_batch') {
+      const levels = (params.commands || []).map((cmd: any) =>
+        this.getConfirmationRiskLevel(cmd.name, cmd.arguments)
+      );
+      if (levels.includes('critical')) return 'critical';
+      if (levels.includes('high')) return 'high';
+      return 'normal';
+    }
+
+    if (new Set(['rm_safe', 'docker_rm', 'docker_rmi', 'kill_process']).has(name)) {
+      return 'critical';
+    }
+    if (new Set([
+      'execute_command', 'edit_text_file', 'append_text_file', 'replace_in_file',
+      'mv', 'cp', 'docker_compose_down', 'docker_compose_stop', 'docker_stop',
+      'systemctl_stop', 'systemctl_disable', 'firewall_cmd', 'chmod', 'chown'
+    ]).has(name)) {
+      return 'high';
+    }
+    return 'normal';
+  }
+
+  private buildConfirmationOperation(name: string, params: any, srv: ServerConfig): string {
+    if (name === 'execute_batch') {
+      return (params.commands || []).map((cmd: any, index: number) => {
+        const command = this.getExecutableCommand(cmd.name, cmd.arguments, srv);
+        return `${index + 1}. ${command || `${cmd.name}: ${JSON.stringify(cmd.arguments)}`}`;
+      }).join('\n');
+    }
+
+    const command = this.getExecutableCommand(name, params, srv);
+    if (command) return command;
+    if (name === 'upload_file') {
+      return `Upload local file ${params.localPath} to remote path ${params.remotePath}`;
+    }
+    if (name === 'download_file') {
+      return `Download remote file ${params.remotePath} to local path ${params.localPath}`;
+    }
+    return `${name}: ${JSON.stringify(params)}`;
+  }
+
+  private buildConfirmationPreview(
+    name: string,
+    serverAlias: string,
+    params: any,
+    srv: ServerConfig
+  ): OperationConfirmationPreview {
+    const riskLevel = this.getConfirmationRiskLevel(name, params);
+    const operation = this.buildConfirmationOperation(name, params, srv);
+    const riskDetails = riskLevel === 'critical'
+      ? 'This operation can delete data, containers, images, or processes.'
+      : riskLevel === 'high'
+        ? 'This operation can modify files, services, permissions, or remote system state.'
+        : 'This operation changes state but no destructive pattern was detected.';
+    return {
+      tool: name,
+      server: serverAlias,
+      riskLevel,
+      riskDetails,
+      operation,
+      message:
+        `Review this SSH operation before execution.\n\n` +
+        `Server: ${serverAlias} (${srv.host})\n` +
+        `Tool: ${name}\n` +
+        `Risk Level: ${riskLevel.toUpperCase()}\n` +
+        `Risk Details: ${riskDetails}\n\n` +
+        `Command or operation to execute:\n${operation}\n\n` +
+        `Choose "yes" to execute this exact operation or "no" to reject it.`
+    };
+  }
+
   public async handleTool(name: string, args: any): Promise<any> {
     validateToolArguments(name, args);
 
@@ -588,13 +676,29 @@ export class ToolHandlers {
         const isValid = this.confirmationManager.validateAndPop(confirmationId, name, serverAlias, args);
         if (!isValid) throw new Error("Invalid or expired confirmationId. Please try again.");
       } else {
-        const newId = this.confirmationManager.createPending(name, serverAlias, args);
-        return {
-          status: "pending",
-          confirmationId: newId,
-          message: `Manual confirmation required for high-risk tool: ${name}. Call this tool again with confirmExecution=true and the provided confirmationId.`,
-          actionPreview: { tool: name, server: serverAlias, args: params }
-        };
+        const preview = this.buildConfirmationPreview(name, serverAlias, params, srv);
+        let interactiveDecision: 'yes' | 'no' | 'unavailable' = 'unavailable';
+        if (this.interactiveConfirmation) {
+          try {
+            interactiveDecision = await this.interactiveConfirmation(preview);
+          } catch {
+            interactiveDecision = 'unavailable';
+          }
+        }
+        if (interactiveDecision === 'no') {
+          throw new Error('The user explicitly rejected this SSH operation. The command or operation was not executed.');
+        }
+        if (interactiveDecision === 'yes') {
+          // Continue to execution after the user accepted the exact preview.
+        } else {
+          const newId = this.confirmationManager.createPending(name, serverAlias, args);
+          return {
+            status: "pending",
+            confirmationId: newId,
+            message: "Interactive confirmation is unavailable. Show the user the exact command or operation and risk details below. If the user says yes, call this tool again with confirmExecution=true and the provided confirmationId. If the user says no, do not call the tool again and report that the user rejected the operation.",
+            actionPreview: { ...preview, args: params }
+          };
+        }
       }
     }
 

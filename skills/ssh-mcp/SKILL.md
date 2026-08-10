@@ -1,6 +1,6 @@
 ---
 name: ssh-mcp
-description: Manage and automate remote infrastructure via SSH. Use this skill for server discovery, file management, Git/Docker/Systemd operations, and secure shell execution. Handles the mandatory two-step confirmation flow for all high-risk write operations.
+description: Manage and automate remote infrastructure via SSH. Use this skill for server discovery, file management, Git/Docker/Systemd operations, secure shell execution, and write operations that require interactive yes/no confirmation or the two-step fallback.
 ---
 
 # SSH MCP
@@ -11,7 +11,7 @@ Operate remote servers securely using the stateless SSH MCP service.
 
 - **Stateless Operation**: Every command is a fresh connection. Use `execute_batch` only when you need shared state such as `cd`.
 - **Single-Command Enforcement**: `execute_command` is server-enforced single-command only. Do not send chaining, pipes, redirection, subshell syntax, or multiline payloads.
-- **Confirmation Safety**: High-risk write tools require the two-step `confirmationId` flow unless the final command is whitelisted. Whitelist bypass never overrides `readOnly`.
+- **Confirmation Safety**: Write tools show the exact command or operation and risk level through interactive yes/no confirmation when supported. Use the `confirmationId` flow only when the server returns the two-step fallback. Whitelist bypass never overrides `readOnly`.
 - **Discovery First**: Never guess a server key or semantic path. Verify with discovery tools.
 - **Compression Recovery Gate**: After any context compression event, re-read `core/AGENTS.md` and this `SKILL.md` before continuing. Do not execute pending step-2 write calls until that is done.
 
@@ -21,7 +21,7 @@ Operate remote servers securely using the stateless SSH MCP service.
 2. Call `list_working_directories` for that alias before using semantic paths.
 3. Use `check_dependencies` before tasks that rely on `docker`, `git`, `tar`, `zip`, or similar binaries.
 4. Use the most specific built-in tool available before falling back to `execute_command`.
-5. For write actions, run step 1, show the action preview, ask for explicit approval, then run step 2 with the same arguments.
+5. For write actions, call the tool once and let the user answer the interactive yes/no prompt. If the result is pending, show its exact action preview, ask for explicit approval, then repeat the call with the same arguments, `confirmationId`, and `confirmExecution: true`.
 
 ## Tool Selection
 
@@ -50,6 +50,7 @@ Operate remote servers securely using the stateless SSH MCP service.
 ## Prohibited Actions
 
 - **Never** attempt to bypass the confirmation flow.
+- **Never** continue after a no, cancel, or decline response; report that the user rejected the operation.
 - **Never** send free-form shell fragments to `firewall_cmd`, multi-word entries inside `netstat.args` or `ss.args`, or shell syntax inside `grep`.
 - **Never** assume whitelist bypass applies on `readOnly` servers.
 - **Never** try to delete system-critical directories using `rm_safe`.

@@ -148,6 +148,50 @@ test('execute_batch should still require confirmation when any high-risk sub-com
 
   assert.equal(result.status, 'pending');
   assert.equal(result.actionPreview.tool, 'execute_batch');
+  assert.equal(result.actionPreview.riskLevel, 'high');
+  assert.match(result.actionPreview.operation, /systemctl restart nginx/);
+});
+
+test('interactive confirmation shows the exact command and executes after yes', async () => {
+  let confirmationPreview;
+  const handlers = new ToolHandlers(createConfigManager(), async (preview) => {
+    confirmationPreview = preview;
+    return 'yes';
+  });
+  let capturedCommand = null;
+
+  const result = await withMockedSsh({
+    async executeCommand(_serverConfig, command) {
+      capturedCommand = command;
+      return { stdout: 'restarted', stderr: '', code: 0, signal: null };
+    }
+  }, () => handlers.handleTool('systemctl_restart', {
+    serverAlias: 'test-server', service: 'nginx'
+  }));
+
+  assert.equal(result, 'restarted');
+  assert.equal(capturedCommand, "systemctl restart 'nginx'");
+  assert.equal(confirmationPreview.riskLevel, 'normal');
+  assert.match(confirmationPreview.message, /Command or operation to execute:\nsystemctl restart 'nginx'/);
+  assert.match(confirmationPreview.message, /Choose "yes".*"no"/);
+});
+
+test('interactive no clearly reports user rejection and does not execute', async () => {
+  const handlers = new ToolHandlers(createConfigManager(), async () => 'no');
+  let executed = false;
+
+  await withMockedSsh({
+    async executeCommand() {
+      executed = true;
+      return { stdout: '', stderr: '', code: 0, signal: null };
+    }
+  }, async () => {
+    await assert.rejects(() => handlers.handleTool('docker_rm', {
+      serverAlias: 'test-server', container: 'old-app'
+    }), /user explicitly rejected.*not executed/i);
+  });
+
+  assert.equal(executed, false);
 });
 
 test('execute_batch should execute directly when every high-risk sub-command is whitelisted', async () => {

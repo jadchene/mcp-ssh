@@ -4,7 +4,7 @@
 
 mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服务。它为 AI Agent 提供结构化工具，用于服务器发现、Shell 命令、文件、Git、Docker、系统服务、网络检查和进程排查。
 
-服务面向无状态 SSH 自动化，并内置明确的安全控制：服务器级只读模式、命令黑名单、可信命令白名单、危险操作两步确认，以及自由 Shell 命令的单命令限制。
+服务面向无状态 SSH 自动化，并内置明确的安全控制：服务器级只读模式、命令黑名单、可信命令白名单、交互式确认及两步回退，以及自由 Shell 命令的单命令限制。
 
 ## 功能
 
@@ -276,7 +276,9 @@ Docker 与 Compose：
 
 ## 安全模型
 
-高风险操作会返回带 `confirmationId` 的 pending 结果。用户确认后，Agent 必须用相同参数再次调用同一个工具，并附带 `confirmationId` 和 `confirmExecution: true`。
+写操作会在交互式 elicitation 表单中展示服务器、实际命令或操作以及风险等级。用户选择 `yes` 执行，选择 `no` 拒绝；拒绝结果会明确返回给 Agent，且不会执行任何操作。
+
+当 MCP 客户端不支持 elicitation 时，操作会返回带 `confirmationId` 的 pending 结果。用户明确确认后，Agent 必须用相同参数再次调用同一个工具，并附带 `confirmationId` 和 `confirmExecution: true`。
 
 服务会检查确认时的参数是否与原始请求完全一致，然后才执行。
 

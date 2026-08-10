@@ -28,7 +28,33 @@ export class MCPServer {
       }
     );
 
-    this.handlers = new ToolHandlers(configManager);
+    this.handlers = new ToolHandlers(configManager, async (preview) => {
+      const clientCapabilities = this.server.getClientCapabilities();
+      if (!clientCapabilities?.elicitation) {
+        return 'unavailable';
+      }
+
+      const result = await this.server.elicitInput({
+        mode: 'form',
+        message: preview.message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            decision: {
+              type: 'string',
+              title: 'Execute this SSH operation?',
+              description: 'Choose yes to execute the exact operation shown above, or no to reject it.',
+              enum: ['yes', 'no']
+            }
+          },
+          required: ['decision']
+        }
+      });
+
+      return result.action === 'accept' && result.content?.decision === 'yes'
+        ? 'yes'
+        : 'no';
+    });
     this.setupHandlers();
 
     this.server.onerror = (error) => logger.error("[MCP Error]", error);

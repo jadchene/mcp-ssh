@@ -4,7 +4,7 @@ English | [简体中文](./README_zh.md)
 
 mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It gives AI agents structured tools for server discovery, shell commands, files, Git, Docker, system services, network checks, and process inspection.
 
-The service is designed for stateless SSH automation with explicit safety controls: server-level read-only mode, command blacklists, optional whitelists for trusted commands, two-step confirmation for high-risk operations, and single-command enforcement for free-form shell execution.
+The service is designed for stateless SSH automation with explicit safety controls: server-level read-only mode, command blacklists, optional whitelists for trusted commands, interactive confirmation with a two-step fallback, and single-command enforcement for free-form shell execution.
 
 ## Features
 
@@ -276,7 +276,9 @@ Stats, process, and archive tools:
 
 ## Safety Model
 
-High-risk operations return a pending result with a `confirmationId`. The agent must call the same tool again with the same parameters plus `confirmationId` and `confirmExecution: true` after the user approves the operation.
+Write operations show the server, exact command or operation, and risk level in an interactive elicitation form. The user chooses `yes` to execute or `no` to reject; rejection is returned clearly to the agent and nothing is executed.
+
+When the MCP client does not support elicitation, the operation returns a pending result with a `confirmationId`. After explicit user approval, the agent must call the same tool again with the same parameters plus `confirmationId` and `confirmExecution: true`.
 
 The server checks that the confirmed parameters match the original request before executing.
 
