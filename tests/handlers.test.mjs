@@ -1329,7 +1329,11 @@ test('download_file should require confirmation before writing locally', async (
 
 test('download_file should reject confirmed writes outside allowedLocalRoots', async () => {
   const handlers = new ToolHandlers(createConfigManager());
-  const args = { serverAlias: 'test-server', remotePath: '/tmp/source', localPath: '/tmp/outside-target' };
+  const args = {
+    serverAlias: 'test-server',
+    remotePath: '/tmp/source',
+    localPath: path.join(os.tmpdir(), 'mcp-ssh-outside-target')
+  };
   const pending = await handlers.handleTool('download_file', args);
   await assert.rejects(() => handlers.handleTool('download_file', {
     ...args, confirmationId: pending.confirmationId, confirmExecution: true
