@@ -2,7 +2,7 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 
-let currentLogDir = process.env.MCP_SSH_LOG_DIR || 'logs';
+let currentLogDir = '';
 let fileLoggingInitialized = false;
 
 export const logger = winston.createLogger({
@@ -56,6 +56,3 @@ export function updateLogTransports(logDir: string) {
   
   logger.info(`Log directory updated to: ${logDir}`);
 }
-
-// Initialize with default or env var
-updateLogTransports(currentLogDir);

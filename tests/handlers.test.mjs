@@ -1425,3 +1425,28 @@ test('ConfigManager should fail closed for unresolved environment variables and 
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('ConfigManager keeps hot reload working across atomic file replacements', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-ssh-config-watch-'));
+  const configPath = path.join(tempDir, 'config.json');
+  const writeAtomic = (host) => {
+    const temporaryPath = `${configPath}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify({
+      servers: { test: { host, username: 'tester', strictHostKeyChecking: false } }
+    }));
+    fs.renameSync(temporaryPath, configPath);
+  };
+  writeAtomic('first.example');
+  const manager = new ConfigManager(configPath);
+  try {
+    writeAtomic('second.example');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(manager.getServerConfig('test')?.host, 'second.example');
+    writeAtomic('third.example');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(manager.getServerConfig('test')?.host, 'third.example');
+  } finally {
+    manager.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

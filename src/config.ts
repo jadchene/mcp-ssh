@@ -59,7 +59,10 @@ export class ConfigManager {
   constructor(configPath: string) {
     this.configPath = path.resolve(configPath);
     this.config = { servers: {} };
-    this.config = this.loadConfig(true);
+    if (process.env.MCP_SSH_LOG_DIR) {
+      updateLogTransports(process.env.MCP_SSH_LOG_DIR);
+    }
+    this.config = this.loadConfig(true) ?? { servers: {} };
     this.watchConfig();
   }
 
@@ -128,14 +131,14 @@ export class ConfigManager {
     return proxy;
   }
 
-  private loadConfig(throwOnError = false): AppConfig {
+  private loadConfig(throwOnError = false): AppConfig | null {
     try {
       if (!fs.existsSync(this.configPath)) {
         logger.warn(`Config file not found at ${this.configPath}.`);
-        return { servers: {} };
+        return throwOnError ? { servers: {} } : null;
       }
       const rawData = fs.readFileSync(this.configPath, 'utf8');
-      if (!rawData.trim()) return this.config; 
+      if (!rawData.trim()) return null;
 
       const parsed = JSON.parse(rawData) as AppConfig;
       this.validateConfig(parsed);
@@ -180,21 +183,25 @@ export class ConfigManager {
     } catch (error) {
       logger.error('Failed to load config:', error);
       if (throwOnError) throw error;
-      return this.config;
+      return null;
     }
   }
 
 
   private watchConfig() {
-    if (fs.existsSync(this.configPath)) {
-      this.watcher = fs.watch(this.configPath, () => {
-        if (this.watchTimeout) clearTimeout(this.watchTimeout);
-        this.watchTimeout = setTimeout(() => {
-          this.config = this.loadConfig();
-          logger.info('Config hot-reloaded.');
-        }, 100); 
-      });
-    }
+    const configDirectory = path.dirname(this.configPath);
+    const configName = path.basename(this.configPath);
+    this.watcher = fs.watch(configDirectory, (_eventType, filename) => {
+      if (filename && filename.toString() !== configName) return;
+      if (this.watchTimeout) clearTimeout(this.watchTimeout);
+      this.watchTimeout = setTimeout(() => {
+        this.watchTimeout = null;
+        const nextConfig = this.loadConfig();
+        if (!nextConfig) return;
+        this.config = nextConfig;
+        logger.info('Config hot-reloaded.');
+      }, 100);
+    });
   }
 
   public getServerConfig(alias: string): ServerConfig | undefined {
