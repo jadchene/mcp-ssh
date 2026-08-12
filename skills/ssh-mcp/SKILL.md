@@ -1,6 +1,6 @@
 ---
 name: ssh-mcp
-description: Manage and automate remote infrastructure via SSH. Use this skill for server discovery, file management, Git/Docker/Systemd operations, secure shell execution, and write operations that require interactive yes/no confirmation or the two-step fallback.
+description: Manage and automate remote infrastructure via SSH. Use this skill for server discovery, file management, Git/Docker/Systemd operations, secure shell execution, and write operations that require interactive yes/no confirmation.
 ---
 
 # SSH MCP
@@ -11,9 +11,9 @@ Operate remote servers securely using the stateless SSH MCP service.
 
 - **Stateless Operation**: Every command is a fresh connection. Use `execute_batch` only when you need shared state such as `cd`.
 - **Single-Command Enforcement**: `execute_command` is server-enforced single-command only. Do not send chaining, pipes, redirection, subshell syntax, or multiline payloads.
-- **Confirmation Safety**: Write tools show the exact command or operation and risk level through interactive yes/no confirmation when supported. Use the `confirmationId` flow only when the server returns the two-step fallback. Whitelist bypass never overrides `readOnly`.
+- **Confirmation Safety**: Write tools show the exact command or operation and risk level through interactive yes/no confirmation. If elicitation is unavailable or fails, the server rejects the operation. Whitelist bypass never overrides `readOnly`.
 - **Discovery First**: Never guess a server key or semantic path. Verify with discovery tools.
-- **Compression Recovery Gate**: After any context compression event, re-read `core/AGENTS.md` and this `SKILL.md` before continuing. Do not execute pending step-2 write calls until that is done.
+- **Compression Recovery Gate**: After any context compression event, re-read `core/AGENTS.md` and this `SKILL.md` before continuing with write operations.
 
 ## Required Workflow
 
@@ -21,7 +21,7 @@ Operate remote servers securely using the stateless SSH MCP service.
 2. Call `list_working_directories` for that alias before using semantic paths.
 3. Use `check_dependencies` before tasks that rely on `docker`, `git`, `tar`, `zip`, or similar binaries.
 4. Use the most specific built-in tool available before falling back to `execute_command`.
-5. For write actions, call the tool once and let the user answer the interactive yes/no prompt. If the result is pending, show its exact action preview, ask for explicit approval, then repeat the call with the same arguments, `confirmationId`, and `confirmExecution: true`.
+5. For write actions, call the tool once and let the user answer the interactive yes/no prompt. If elicitation is unsupported or fails, report the error and do not attempt a fallback execution.
 
 ## Tool Selection
 

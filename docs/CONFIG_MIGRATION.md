@@ -67,7 +67,7 @@ Local file access is disabled when `allowedLocalRoots` is absent or empty. Add t
 
 Relative roots are resolved from the directory containing `config.json`. Upload sources and download destinations are resolved to their real local paths and must remain inside one of these roots. Downloads refuse symbolic-link destinations and are written to a temporary file before an atomic rename.
 
-The `download_file` tool is now treated as a write operation. It requires two-step confirmation and is rejected for servers configured with `readOnly: true`.
+The `download_file` tool is now treated as a write operation. It requires interactive elicitation confirmation and is rejected for servers configured with `readOnly: true`.
 
 ### 3. Restrict `rm_safe` to explicit remote roots
 

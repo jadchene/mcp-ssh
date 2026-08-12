@@ -1,6 +1,5 @@
 ﻿import { SSHClient } from '../ssh.js';
 import { ConfigManager, ServerConfig } from '../config.js';
-import { ConfirmationManager } from '../core/confirmation.js';
 import { validateToolArguments } from './validation.js';
 import { toolDefinitions } from './definitions.js';
 import fs from 'node:fs';
@@ -104,8 +103,6 @@ export type InteractiveConfirmation = (
 ) => Promise<'yes' | 'no' | 'unavailable'>;
 
 export class ToolHandlers {
-  private confirmationManager = new ConfirmationManager();
-
   constructor(
     private configManager: ConfigManager,
     private interactiveConfirmation?: InteractiveConfirmation
@@ -640,7 +637,7 @@ export class ToolHandlers {
         .join('\n');
     }
 
-    const { serverAlias, confirmationId, confirmExecution, ...params } = args;
+    const { serverAlias, ...params } = args;
     const srv = this.getServerConfig(serverAlias);
     const timeout = this.configManager.getDefaultTimeout();
 
@@ -672,33 +669,20 @@ export class ToolHandlers {
     }
 
     if (isWriteAction) {
-      if (confirmationId && confirmExecution === true) {
-        const isValid = this.confirmationManager.validateAndPop(confirmationId, name, serverAlias, args);
-        if (!isValid) throw new Error("Invalid or expired confirmationId. Please try again.");
-      } else {
-        const preview = this.buildConfirmationPreview(name, serverAlias, params, srv);
-        let interactiveDecision: 'yes' | 'no' | 'unavailable' = 'unavailable';
-        if (this.interactiveConfirmation) {
-          try {
-            interactiveDecision = await this.interactiveConfirmation(preview);
-          } catch {
-            interactiveDecision = 'unavailable';
-          }
+      const preview = this.buildConfirmationPreview(name, serverAlias, params, srv);
+      let interactiveDecision: 'yes' | 'no' | 'unavailable' = 'unavailable';
+      if (this.interactiveConfirmation) {
+        try {
+          interactiveDecision = await this.interactiveConfirmation(preview);
+        } catch {
+          interactiveDecision = 'unavailable';
         }
-        if (interactiveDecision === 'no') {
-          throw new Error('The user explicitly rejected this SSH operation. The command or operation was not executed.');
-        }
-        if (interactiveDecision === 'yes') {
-          // Continue to execution after the user accepted the exact preview.
-        } else {
-          const newId = this.confirmationManager.createPending(name, serverAlias, args);
-          return {
-            status: "pending",
-            confirmationId: newId,
-            message: "Interactive confirmation is unavailable. Show the user the exact command or operation and risk details below. If the user says yes, call this tool again with confirmExecution=true and the provided confirmationId. If the user says no, do not call the tool again and report that the user rejected the operation.",
-            actionPreview: { ...preview, args: params }
-          };
-        }
+      }
+      if (interactiveDecision === 'no') {
+        throw new Error('The user explicitly rejected this SSH operation. The command or operation was not executed.');
+      }
+      if (interactiveDecision !== 'yes') {
+        throw new Error('This SSH operation requires interactive elicitation, but the MCP client does not support it or the elicitation request failed. The operation was not executed.');
       }
     }
 

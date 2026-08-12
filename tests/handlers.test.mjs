@@ -9,7 +9,6 @@ import path from 'node:path';
 import { ToolHandlers } from '../dist/tools/handlers.js';
 import { SSHClient } from '../dist/ssh.js';
 import { ConfigManager } from '../dist/config.js';
-import { ConfirmationManager } from '../dist/core/confirmation.js';
 
 /**
  * Build a lightweight config manager stub for ToolHandlers tests.
@@ -132,7 +131,7 @@ test('execute_batch should still require confirmation when any high-risk sub-com
     createConfigManager({ whitelist: ['^docker ps$'] })
   );
 
-  const result = await handlers.handleTool('execute_batch', {
+  await assert.rejects(() => handlers.handleTool('execute_batch', {
     serverAlias: 'test-server',
     commands: [
       {
@@ -144,12 +143,7 @@ test('execute_batch should still require confirmation when any high-risk sub-com
         arguments: { command: 'systemctl restart nginx' }
       }
     ]
-  });
-
-  assert.equal(result.status, 'pending');
-  assert.equal(result.actionPreview.tool, 'execute_batch');
-  assert.equal(result.actionPreview.riskLevel, 'high');
-  assert.match(result.actionPreview.operation, /systemctl restart nginx/);
+  }), /requires interactive elicitation/);
 });
 
 test('interactive confirmation shows the exact command and executes after yes', async () => {
@@ -1365,22 +1359,17 @@ test('touch and download_file should be blocked on read-only servers', async () 
 
 test('download_file should require confirmation before writing locally', async () => {
   const handlers = new ToolHandlers(createConfigManager());
-  const result = await handlers.handleTool('download_file', {
+  await assert.rejects(() => handlers.handleTool('download_file', {
     serverAlias: 'test-server', remotePath: '/tmp/source', localPath: './target'
-  });
-  assert.equal(result.status, 'pending');
+  }), /requires interactive elicitation/);
 });
 
 test('download_file should reject confirmed writes outside allowedLocalRoots', async () => {
-  const handlers = new ToolHandlers(createConfigManager());
-  const args = {
+  const handlers = new ToolHandlers(createConfigManager(), async () => 'yes');
+  await assert.rejects(() => handlers.handleTool('download_file', {
     serverAlias: 'test-server',
     remotePath: '/tmp/source',
     localPath: path.join(os.tmpdir(), 'mcp-ssh-outside-target')
-  };
-  const pending = await handlers.handleTool('download_file', args);
-  await assert.rejects(() => handlers.handleTool('download_file', {
-    ...args, confirmationId: pending.confirmationId, confirmExecution: true
   }), /outside allowedLocalRoots/);
 });
 
@@ -1435,14 +1424,4 @@ test('ConfigManager should fail closed for unresolved environment variables and 
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-});
-
-test('ConfirmationManager should keep an immutable snapshot of pending arguments', () => {
-  const manager = new ConfirmationManager();
-  const args = { serverAlias: 'test-server', path: '/srv/app/one' };
-  const id = manager.createPending('rm_safe', 'test-server', args);
-  args.path = '/srv/app/two';
-  assert.equal(manager.validateAndPop(id, 'rm_safe', 'test-server', {
-    serverAlias: 'test-server', path: '/srv/app/two', confirmationId: id, confirmExecution: true
-  }), false);
 });
