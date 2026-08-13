@@ -7,7 +7,7 @@ mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It g
 The service is designed for stateless SSH automation with explicit safety controls: server-level read-only mode, command blacklists, optional whitelists for trusted commands, interactive confirmation, and single-command enforcement for free-form shell execution.
 
 > [!IMPORTANT]
-> Starting with **v1.6.1**, the non-elicitation two-step confirmation fallback has been removed. Write operations that require confirmation now return an error without executing when the MCP client does not support elicitation or when the elicitation request fails. Use an MCP client with elicitation support.
+> Starting with **v2.0.0**, the non-elicitation two-step confirmation fallback has been removed. Write operations that require confirmation now return an error without executing when the MCP client does not support elicitation or when the elicitation request fails. Use an MCP client with elicitation support.
 
 ## Features
 

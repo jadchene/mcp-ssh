@@ -6,6 +6,9 @@ mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服�
 
 服务面向无状态 SSH 自动化，并内置明确的安全控制：服务器级只读模式、命令黑名单、可信命令白名单、交互式确认，以及自由 Shell 命令的单命令限制。
 
+> [!IMPORTANT]
+> 从 **v2.0.0** 开始，已移除客户端不支持 elicitation 时的两步确认 fallback。MCP 客户端不支持 elicitation 或 elicitation 请求失败时，需要确认的写操作会直接返回错误且不会执行。请使用支持 elicitation 的 MCP 客户端。
+
 ## 功能
 
 - 通过语义化别名和描述配置多个 SSH 服务器。
@@ -277,9 +280,6 @@ Docker 与 Compose：
 ## 安全模型
 
 写操作会在交互式 elicitation 表单中展示服务器、实际命令或操作以及风险等级。用户选择 `yes` 执行，选择 `no` 拒绝；拒绝结果会明确返回给 Agent，且不会执行任何操作。
-
-> [!IMPORTANT]
-> 从 **v1.6.1** 开始，已移除客户端不支持 elicitation 时的两步确认 fallback。MCP 客户端不支持 elicitation 或 elicitation 请求失败时，需要确认的写操作会直接返回错误且不会执行。请使用支持 elicitation 的 MCP 客户端。
 
 当 MCP 客户端不支持 elicitation，或 elicitation 请求失败时，工具会直接返回错误且不会执行操作。
 
