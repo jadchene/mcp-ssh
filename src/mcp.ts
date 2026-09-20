@@ -78,7 +78,7 @@ export class MCPServer {
         const result = await this.handlers.handleTool(request.params.name, args);
         
         // Ensure the result is a string for the MCP "text" content type
-        const textOutput = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+        const textOutput = typeof result === "string" ? result : JSON.stringify(result);
 
         return {
           content: [

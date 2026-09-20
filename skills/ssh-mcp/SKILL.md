@@ -1,6 +1,6 @@
 ---
 name: ssh-mcp
-description: Manage and automate remote infrastructure via SSH. Use this skill for server discovery, file management, Git/Docker/Systemd operations, secure shell execution, and write operations that require interactive yes/no confirmation.
+description: Use SSH MCP tools for remote inspection, file management, and confirmed operations.
 ---
 
 # SSH MCP
@@ -9,10 +9,10 @@ Operate remote servers securely using the stateless SSH MCP service.
 
 ## Workflow
 
-1. Call `list_servers` to find the correct `serverAlias`.
-2. Discover configured working-directory aliases before using semantic paths.
+1. Reuse a `serverAlias` confirmed in the current session; call `list_servers` when it is unknown or stale.
+2. Discover working-directory aliases only when the required mapping is unknown.
 3. Prefer a structured tool; use `execute_command` only for one command without chaining, pipes, redirection, subshells, or multiline input. Use `execute_batch` when commands must share state.
-4. Check dependencies before relying on remote binaries.
+4. Check dependencies when availability is unknown and affects tool selection, or after a missing-command error.
 5. For writes, call once and let the user answer the elicitation prompt. Stop after rejection, cancellation, or elicitation failure; never attempt a fallback execution.
 
 ## Constraints

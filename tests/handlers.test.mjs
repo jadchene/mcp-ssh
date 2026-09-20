@@ -1305,7 +1305,7 @@ test('runtime schema should reject unknown properties', async () => {
   const handlers = new ToolHandlers(createConfigManager());
   await assert.rejects(() => handlers.handleTool('hostname', {
     serverAlias: 'test-server', unexpected: true
-  }), /additional properties/);
+  }), /unsupported parameter "unexpected".*Allowed parameters: serverAlias, grep/);
 });
 
 test('execute_command blacklist should inspect quoted interpreter payloads', async () => {
@@ -1449,4 +1449,12 @@ test('ConfigManager keeps hot reload working across atomic file replacements', a
     manager.close();
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test('batch argument errors identify the failed command index and field', async () => {
+  const handlers = new ToolHandlers(createConfigManager());
+  await assert.rejects(() => handlers.handleTool('execute_batch', {
+    serverAlias: 'test-server',
+    commands: [{ name: 'hostname', arguments: {} }, { name: 'head', arguments: { lines: 1 } }]
+  }), /commands\/1:.*missing required parameter "filePath"/);
 });
