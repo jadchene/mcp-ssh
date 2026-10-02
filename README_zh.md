@@ -279,7 +279,9 @@ Docker 与 Compose：
 
 ## 安全模型
 
-写操作会在交互式 elicitation 表单中展示服务器、实际命令或操作以及风险等级。用户选择 `yes` 执行，选择 `no` 拒绝；拒绝结果会明确返回给 Agent，且不会执行任何操作。
+写操作会在交互式确认中展示服务器、实际命令或操作以及风险等级。接受后执行；拒绝或取消均不执行。
+
+Codex 客户端会收到自动审查元数据。自动审查是可选能力：Codex 启用 `approvals_reviewer = "auto_review"` 时由其策略决定审批结果；未启用时按正常的 Accept / Decline / Cancel 操作；其他客户端使用标准确认。
 
 当 MCP 客户端不支持 elicitation，或 elicitation 请求失败时，工具会直接返回错误且不会执行操作。
 

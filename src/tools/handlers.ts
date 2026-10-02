@@ -91,6 +91,8 @@ const DEFAULT_BLACKLIST = [
 
 export interface OperationConfirmationPreview {
   tool: string;
+  /** 实际工具参数，供自动审批审阅。 */
+  arguments: Record<string, unknown>;
   server: string;
   riskLevel: 'normal' | 'high' | 'critical';
   riskDetails: string;
@@ -611,6 +613,7 @@ export class ToolHandlers {
         : 'This operation changes state but no destructive pattern was detected.';
     return {
       tool: name,
+      arguments: structuredClone({ serverAlias, ...params }),
       server: serverAlias,
       riskLevel,
       riskDetails,
@@ -622,7 +625,7 @@ export class ToolHandlers {
         `Risk Level: ${riskLevel.toUpperCase()}\n` +
         `Risk Details: ${riskDetails}\n\n` +
         `Command or operation to execute:\n${operation}\n\n` +
-        `Choose "yes" to execute this exact operation or "no" to reject it.`
+        `Accept to execute this exact operation; decline or cancel to leave it unexecuted.`
     };
   }
 

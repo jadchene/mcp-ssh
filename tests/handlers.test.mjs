@@ -5,10 +5,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { ToolHandlers } from '../dist/tools/handlers.js';
 import { SSHClient } from '../dist/ssh.js';
 import { ConfigManager } from '../dist/config.js';
+import { MCPServer } from '../dist/mcp.js';
 
 /**
  * Build a lightweight config manager stub for ToolHandlers tests.
@@ -146,7 +150,95 @@ test('execute_batch should still require confirmation when any high-risk sub-com
   }), /requires interactive elicitation/);
 });
 
-test('interactive confirmation shows the exact command and executes after yes', async () => {
+for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
+  test(`MCP confirmation executes only on accept for ${clientName}`, async (t) => {
+    const signalListeners = new Map(['SIGINT', 'SIGTERM'].map(signal => [signal, process.listeners(signal)]));
+    const mcp = new MCPServer(createConfigManager());
+    const client = new Client({ name: clientName, version: '1.0.0' }, {
+      capabilities: { elicitation: { form: {} } }
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    t.after(async () => {
+      await client.close();
+      await mcp.server.close();
+      for (const [signal, listeners] of signalListeners) {
+        for (const listener of process.listeners(signal)) {
+          if (!listeners.includes(listener)) process.removeListener(signal, listener);
+        }
+      }
+    });
+    let response;
+    let failConfirmation = false;
+    let confirmationCalls = 0;
+    let executions = 0;
+    let expectedTool = 'systemctl_restart';
+    let expectedArguments = { serverAlias: 'test-server', service: 'nginx' };
+    let expectedCommand = "systemctl restart 'nginx'";
+    let expectedSensitive = false;
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      confirmationCalls += 1;
+      assert.equal(request.params.mode, 'form');
+      assert.deepEqual(request.params.requestedSchema.properties, {});
+      assert.equal(request.params.requestedSchema.required, undefined);
+      assert.ok(request.params.message.includes(expectedCommand));
+      if (clientName === 'codex-mcp-client') {
+        assert.deepEqual(request.params._meta, {
+          codex_request_type: 'approval_request', codex_approval_kind: 'mcp_tool_call',
+          codex_strict_auto_review: true, tool_name: expectedTool,
+          ...(expectedSensitive ? { codex_sensitive_action: true } : {}),
+          tool_description: request.params.message,
+          tool_params: expectedArguments
+        });
+      } else {
+        assert.equal(request.params._meta, undefined);
+      }
+      if (failConfirmation) throw new Error('Confirmation unavailable');
+      return response;
+    });
+    await mcp.server.connect(serverTransport);
+    await client.connect(clientTransport);
+    await withMockedSsh({
+      async executeCommand(_serverConfig, command) {
+        executions += 1;
+        assert.equal(command, expectedCommand);
+        return { stdout: 'restarted', stderr: '', code: 0, signal: null };
+      }
+    }, async () => {
+      for (response of [{ action: 'accept', content: {} }, { action: 'accept' }, { action: 'decline' }, { action: 'cancel' }]) {
+        const before = executions;
+        const result = await client.callTool({
+          name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+        });
+        const accepted = response.action === 'accept';
+        assert.equal(result.isError === true, !accepted);
+        assert.equal(executions - before, accepted ? 1 : 0);
+      }
+      failConfirmation = true;
+      const result = await client.callTool({
+        name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+      });
+      assert.equal(result.isError, true);
+      assert.equal(executions, 2);
+      assert.equal(confirmationCalls, 5);
+      failConfirmation = false;
+      expectedTool = 'execute_command';
+      expectedCommand = 'touch approved-test';
+      expectedArguments = { serverAlias: 'test-server', command: expectedCommand };
+      expectedSensitive = true;
+      for (response of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }]) {
+        const before = executions;
+        const result = await client.callTool({ name: expectedTool, arguments: expectedArguments });
+        const accepted = response.action === 'accept';
+        assert.equal(result.isError === true, !accepted);
+        assert.equal(executions - before, accepted ? 1 : 0);
+      }
+      assert.equal(executions, 3);
+      assert.equal(confirmationCalls, 8);
+    });
+  });
+}
+
+test('interactive confirmation shows the exact command and executes after acceptance', async () => {
   let confirmationPreview;
   const handlers = new ToolHandlers(createConfigManager(), async (preview) => {
     confirmationPreview = preview;
@@ -167,7 +259,7 @@ test('interactive confirmation shows the exact command and executes after yes', 
   assert.equal(capturedCommand, "systemctl restart 'nginx'");
   assert.equal(confirmationPreview.riskLevel, 'normal');
   assert.match(confirmationPreview.message, /Command or operation to execute:\nsystemctl restart 'nginx'/);
-  assert.match(confirmationPreview.message, /Choose "yes".*"no"/);
+  assert.match(confirmationPreview.message, /Accept to execute.*decline or cancel/);
 });
 
 test('interactive no clearly reports user rejection and does not execute', async () => {

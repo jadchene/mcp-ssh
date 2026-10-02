@@ -9,6 +9,7 @@ import { ToolHandlers } from "./tools/handlers.js";
 import { ConfigManager } from "./config.js";
 import { logger } from "./logger.js";
 import { NAME, VERSION } from "./version.js";
+import { buildCodexApprovalMeta } from "./codex-approval.js";
 
 export class MCPServer {
   private server: Server;
@@ -34,24 +35,21 @@ export class MCPServer {
         return 'unavailable';
       }
 
+      const approvalMeta = buildCodexApprovalMeta(
+        this.server.getClientVersion(), preview.tool, preview.arguments, preview.message,
+        preview.riskLevel !== 'normal'
+      );
       const result = await this.server.elicitInput({
         mode: 'form',
         message: preview.message,
         requestedSchema: {
           type: 'object',
-          properties: {
-            decision: {
-              type: 'string',
-              title: 'Execute this SSH operation?',
-              description: 'Choose yes to execute the exact operation shown above, or no to reject it.',
-              enum: ['yes', 'no']
-            }
-          },
-          required: ['decision']
-        }
+          properties: {}
+        },
+        ...(approvalMeta ? { _meta: approvalMeta } : {})
       });
 
-      return result.action === 'accept' && result.content?.decision === 'yes'
+      return result.action === 'accept'
         ? 'yes'
         : 'no';
     });

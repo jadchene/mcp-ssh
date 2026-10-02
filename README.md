@@ -279,7 +279,9 @@ Stats, process, and archive tools:
 
 ## Safety Model
 
-Write operations show the server, exact command or operation, and risk level in an interactive elicitation form. The user chooses `yes` to execute or `no` to reject; rejection is returned clearly to the agent and nothing is executed.
+Write operations show the server, exact command or operation, and risk level in an interactive confirmation. Accept executes the operation; decline or cancel leaves it unexecuted.
+
+Codex clients receive metadata requesting automatic review. Automatic review is optional: when `approvals_reviewer = "auto_review"` is enabled in Codex, Codex policy decides approval; otherwise, use the normal Accept / Decline / Cancel confirmation. Other clients use standard confirmation.
 
 When the MCP client does not support elicitation, or when the elicitation request fails, the tool returns an error and does not execute the operation.
 
