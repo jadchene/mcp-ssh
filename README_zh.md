@@ -7,7 +7,7 @@ mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服�
 服务面向无状态 SSH 自动化，并内置明确的安全控制：服务器级只读模式、命令黑名单、可信命令白名单、交互式确认，以及自由 Shell 命令的单命令限制。
 
 > [!IMPORTANT]
-> 从 **v2.0.0** 开始，已移除客户端不支持 elicitation 时的两步确认 fallback。MCP 客户端不支持 elicitation 或 elicitation 请求失败时，需要确认的写操作会直接返回错误且不会执行。请使用支持 elicitation 的 MCP 客户端。
+> 从 **v2.0.0** 开始，已移除客户端不支持 elicitation 时的两步确认 fallback。MCP 客户端不支持 elicitation 或 elicitation 请求失败时，需要确认的写操作会直接返回错误且不会执行。需要确认的操作请使用支持 elicitation 的 MCP 客户端。
 
 ## 功能
 
@@ -15,10 +15,10 @@ mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服�
 - 支持密码、私钥、私钥口令和跳板机 SSH 连接。
 - 把常用远程路径映射成命名工作目录。
 - 使用只读系统、文件、进程、网络、Git 和 Docker 检查工具。
-- 写入操作默认需要确认，除非最终命令被显式白名单信任。
-- `execute_command` 会拒绝命令串联、管道、重定向、子 Shell 和多行输入。
+- 普通模式的写入操作默认需要确认，可按命令配置白名单或按服务器启用 Full Access。
+- 普通模式下，`execute_command` 使用单命令输入限制。
 - 为常见操作提供内置工具，减少让 Agent 拼接高风险 Shell 片段的需求。
-- 支持按服务器设置 `readOnly`，禁用写入和修改工具。
+- 支持按服务器设置 `readOnly`，或显式设置 `dangerMode` 启用 Full Access。
 - 运行日志不写入 MCP stdout；文件日志写入 `logDir`。
 
 ## 为什么使用它
@@ -89,6 +89,7 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
       "privateKeyPath": "${HOME}/.ssh/id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "dangerMode": false,
       "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
@@ -128,6 +129,8 @@ MCP_SSH_CONFIG=./config.json mcp-ssh-service
 | `privateKeyPath` | string | 私钥文件路径。 |
 | `passphrase` | string | 私钥口令，建议使用 `${VAR}` 占位。 |
 | `readOnly` | boolean | 禁用该服务器的写入和修改工具。 |
+| `codexAutoReview` | boolean | 可选，默认 `false`；显式设为 `true` 才启用本服务器的 Codex 自动审批元数据。 |
+| `dangerMode` | boolean | 可选，默认 `false`；设为 `true` 启用本服务器的 Full Access，跳过全部操作审批并覆盖只读、命令及路径访问限制。 |
 | `strictHostKeyChecking` | boolean | 只有明确接受跳过 host key 校验时才设为 `false`。 |
 | `hostKeySha256` | string 或 string[] | 开启严格校验（默认）时必须配置的 SSH 主机密钥指纹。 |
 | `allowedRemoteRoots` | string[] | `rm_safe` 可执行删除的可选远程路径根目录。 |
@@ -279,17 +282,25 @@ Docker 与 Compose：
 
 ## 安全模型
 
-写操作会在交互式确认中展示服务器、实际命令或操作以及风险等级。接受后执行；拒绝或取消均不执行。
+在指定服务器的 `servers.<serverAlias>` 配置块设置 `"dangerMode": true` 即启用 Full Access，优先于 `codexAutoReview`。该服务器的所有工具直接执行，无需人工或自动审批；`readOnly`、命令黑名单、单命令限制、`allowedRemoteRoots` 和 `allowedLocalRoots` 不再限制该服务器。参数校验和 SSH 认证仍然有效，其他服务器配置独立生效。成功、失败和读取操作均返回带 `warning` 字段的 JSON；文本输出放在 `result` 字段中。`list_servers` 也会在启用目标的条目中显示警告。
 
-Codex 客户端会收到自动审查元数据。自动审查是可选能力：Codex 启用 `approvals_reviewer = "auto_review"` 时由其策略决定审批结果；未启用时按正常的 Accept / Decline / Cancel 操作；其他客户端使用标准确认。
+警告文案：
 
-当 MCP 客户端不支持 elicitation，或 elicitation 请求失败时，工具会直接返回错误且不会执行操作。
+```text
+FULL ACCESS: Danger mode is enabled for this target. All available tools can execute without operation approval. Calls may modify or delete data immediately. Use caution.
+```
+
+`dangerMode` 未启用时，写操作会在交互式确认中展示服务器、实际命令或操作以及风险等级。接受后执行；拒绝或取消均不执行。
+
+Codex 自动审批扩展默认禁用；在指定服务器的 `servers.<serverAlias>` 配置块中显式设置 `"codexAutoReview": true` 才会为 Codex 客户端添加审批元数据。Codex 开启 `approvals_reviewer = "auto_review"` 时自动审查，否则使用正常的 Accept / Decline / Cancel 确认；审批结果仍由 Codex 策略决定。
+
+需要确认的操作在客户端不支持 elicitation 或确认请求失败时，会返回错误且不会执行。
 
 服务会检查确认时的参数是否与原始请求完全一致，然后才执行。
 
-`execute_command` 只接受单个 Shell 命令片段。它会拒绝 `&&`、`||`、`;`、管道、重定向、子 Shell 语法和多行输入。多步骤工作请使用 `execute_batch` 或内置结构化工具。
+`dangerMode` 未启用时，`execute_command` 只接受单个 Shell 命令片段。它会拒绝 `&&`、`||`、`;`、管道、重定向、子 Shell 语法和多行输入。多步骤工作请使用 `execute_batch` 或内置结构化工具。
 
-`commandBlacklist` 会阻止被禁止的最终命令字符串。`commandWhitelist` 只会对匹配配置正则的可信最终命令跳过确认。
+`dangerMode` 未启用时，`commandBlacklist` 会阻止被禁止的最终命令字符串。`commandWhitelist` 只会对匹配配置正则的可信最终命令跳过确认。
 
 对破坏性或修改类工作，优先使用 `mkdir`、`edit_text_file`、`replace_in_file`、`docker_compose_restart`、`systemctl_restart` 等内置工具，而不是自由 Shell 命令。
 
@@ -308,7 +319,7 @@ Codex 客户端会收到自动审查元数据。自动审查是可选能力：Co
 
 - Skill 路径：`skills/ssh-mcp/SKILL.md`
 
-当你的 Agent 支持 skills 时建议加载它。它会统一服务器发现、安全命令选择、确认行为和操作后验证。
+当你的 Agent 支持 skills 时建议加载它。它会统一服务器发现、安全命令选择、参数使用方式和操作后验证。
 
 ## MCP 客户端配置
 

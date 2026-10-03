@@ -32,6 +32,10 @@ export interface ServerConfig {
   /** Allowed SHA-256 host key fingerprints (SHA256:base64). Required unless strict checking is false. */
   hostKeySha256?: string | string[];
   readOnly?: boolean;
+  /** 显式启用本服务器的 Codex 自动审批扩展，默认禁用。 */
+  codexAutoReview?: boolean;
+  /** 本服务器的 Full Access 模式，跳过操作审批与访问限制，默认禁用。 */
+  dangerMode?: boolean;
   desc?: string;
   workingDirectories?: Record<string, WorkingDirectory>;
   /** Optional jump host configuration */
@@ -95,6 +99,12 @@ export class ConfigManager {
         throw new Error(`Server '${alias}' must define non-empty host and username values.`);
       }
       this.validatePort(server.port ?? 22, `Server '${alias}' port`);
+      if (server.codexAutoReview !== undefined && typeof server.codexAutoReview !== 'boolean') {
+        throw new Error(`Server '${alias}' codexAutoReview must be a boolean.`);
+      }
+      if (server.dangerMode !== undefined && typeof server.dangerMode !== 'boolean') {
+        throw new Error(`Server '${alias}' dangerMode must be a boolean.`);
+      }
       if (server.allowedRemoteRoots !== undefined && (!Array.isArray(server.allowedRemoteRoots) || server.allowedRemoteRoots.some((root) => typeof root !== 'string' || !path.posix.isAbsolute(root)))) {
         throw new Error(`Server '${alias}' allowedRemoteRoots must contain absolute paths.`);
       }
@@ -208,10 +218,10 @@ export class ConfigManager {
     return this.config.servers[alias];
   }
   
-  public getAllServers(): Record<string, { desc?: string, host: string }> {
+  public getAllServers(): Record<string, { desc?: string, host: string, dangerMode?: boolean }> {
     const result: any = {};
     for (const [alias, srv] of Object.entries(this.config.servers)) {
-      result[alias] = { desc: srv.desc, host: srv.host };
+      result[alias] = { desc: srv.desc, host: srv.host, ...(srv.dangerMode === true ? { dangerMode: true } : {}) };
     }
     return result;
   }

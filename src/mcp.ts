@@ -10,6 +10,7 @@ import { ConfigManager } from "./config.js";
 import { logger } from "./logger.js";
 import { NAME, VERSION } from "./version.js";
 import { buildCodexApprovalMeta } from "./codex-approval.js";
+import { FULL_ACCESS_WARNING } from "./danger-mode.js";
 
 export class MCPServer {
   private server: Server;
@@ -35,10 +36,10 @@ export class MCPServer {
         return 'unavailable';
       }
 
-      const approvalMeta = buildCodexApprovalMeta(
-        this.server.getClientVersion(), preview.tool, preview.arguments, preview.message,
+      const approvalMeta = preview.codexAutoReview ? buildCodexApprovalMeta(
+        preview.clientInfo ?? this.server.getClientVersion(), preview.tool, preview.arguments, preview.message,
         preview.riskLevel !== 'normal'
-      );
+      ) : undefined;
       const result = await this.server.elicitInput({
         mode: 'form',
         message: preview.message,
@@ -67,16 +68,22 @@ export class MCPServer {
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const args = request.params.arguments ?? {};
+      const target = typeof args.serverAlias === 'string' ? this.configManager.getServerConfig(args.serverAlias) : undefined;
+      const warning = target?.dangerMode === true ? FULL_ACCESS_WARNING : undefined;
       try {
-        const args = request.params.arguments ?? {};
         logger.info(`Handling tool call: ${request.params.name}`, {
           argumentKeys: Object.keys(args),
           serverAlias: typeof args.serverAlias === 'string' ? args.serverAlias : undefined
         });
-        const result = await this.handlers.handleTool(request.params.name, args);
+        const clientInfo = request.params._meta?.["io.modelcontextprotocol/clientInfo"] ?? this.server.getClientVersion();
+        const result = await this.handlers.handleTool(request.params.name, args, clientInfo);
         
         // Ensure the result is a string for the MCP "text" content type
-        const textOutput = typeof result === "string" ? result : JSON.stringify(result);
+        const textOutput = warning
+          ? JSON.stringify(typeof result === 'object' && result !== null && !Array.isArray(result)
+            ? { ...result, warning } : { result, warning })
+          : typeof result === "string" ? result : JSON.stringify(result);
 
         return {
           content: [
@@ -92,7 +99,7 @@ export class MCPServer {
           content: [
             {
               type: "text",
-              text: `Error: ${error.message}`,
+              text: warning ? JSON.stringify({ error: error.message, warning }) : `Error: ${error.message}`,
             },
           ],
           isError: true,

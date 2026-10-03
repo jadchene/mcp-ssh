@@ -36,14 +36,18 @@
         "password": "${JUMP_PWD}",
         "strictHostKeyChecking": true,
         "hostKeySha256": "SHA256:REPLACE_WITH_BASTION_FINGERPRINT"
-      }
+      },
+      "dangerMode": false,
+      "codexAutoReview": false
     },
     "direct-ssh": {
       "desc": "Direct SSH with Password",
       "host": "192.168.1.59",
       "username": "root",
       "password": "${SERVER_PWD}",
-      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT"
+      "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "dangerMode": false,
+      "codexAutoReview": false
     },
     "test-db": {
       "desc": "Read-only Test Database",
@@ -51,7 +55,9 @@
       "username": "tester",
       "password": "${TEST_DB_PASSWORD}",
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
-      "readOnly": true
+      "readOnly": true,
+      "dangerMode": false,
+      "codexAutoReview": false
     }
   }
 }

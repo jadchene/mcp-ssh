@@ -13,6 +13,7 @@ import { ToolHandlers } from '../dist/tools/handlers.js';
 import { SSHClient } from '../dist/ssh.js';
 import { ConfigManager } from '../dist/config.js';
 import { MCPServer } from '../dist/mcp.js';
+import { FULL_ACCESS_WARNING } from '../dist/danger-mode.js';
 
 /**
  * Build a lightweight config manager stub for ToolHandlers tests.
@@ -21,11 +22,14 @@ function createConfigManager({
   blacklist = [],
   whitelist = [],
   readOnly = false,
+  codexAutoReview,
+  dangerMode,
+  allowedLocalRoots = [process.cwd()],
   allowedRemoteRoots
 } = {}) {
   return {
     getServerConfig(alias) {
-      if (alias !== 'test-server') {
+      if (alias !== 'test-server' && alias !== 'disabled-server') {
         return undefined;
       }
 
@@ -34,6 +38,8 @@ function createConfigManager({
         port: 22,
         username: 'tester',
         readOnly,
+        codexAutoReview: alias === 'disabled-server' ? undefined : codexAutoReview,
+        dangerMode: alias === 'disabled-server' ? undefined : dangerMode,
         allowedRemoteRoots
       };
     },
@@ -47,7 +53,10 @@ function createConfigManager({
       return 1000;
     },
     getAllowedLocalRoots() {
-      return [process.cwd()];
+      return allowedLocalRoots;
+    },
+    getAllServers() {
+      return { 'test-server': this.getServerConfig('test-server'), 'disabled-server': this.getServerConfig('disabled-server') };
     }
   };
 }
@@ -150,92 +159,204 @@ test('execute_batch should still require confirmation when any high-risk sub-com
   }), /requires interactive elicitation/);
 });
 
-for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
-  test(`MCP confirmation executes only on accept for ${clientName}`, async (t) => {
-    const signalListeners = new Map(['SIGINT', 'SIGTERM'].map(signal => [signal, process.listeners(signal)]));
-    const mcp = new MCPServer(createConfigManager());
-    const client = new Client({ name: clientName, version: '1.0.0' }, {
-      capabilities: { elicitation: { form: {} } }
+for (const supportsElicitation of [false, true]) {
+  test(`danger mode skips all SSH approvals and reports Full Access, elicitation ${supportsElicitation}`, async (t) => {
+    const listeners = new Map(['SIGINT', 'SIGTERM'].map(signal => [signal, process.listeners(signal)]));
+    const config = createConfigManager({ dangerMode: true, codexAutoReview: true, readOnly: true,
+      blacklist: ['.*'], allowedLocalRoots: [] });
+    const mcp = new MCPServer(config);
+    const client = new Client({ name: 'codex-mcp-client', version: '1.0.0' }, {
+      capabilities: supportsElicitation ? { elicitation: { form: {} } } : {}
     });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     t.after(async () => {
       await client.close();
       await mcp.server.close();
-      for (const [signal, listeners] of signalListeners) {
+      for (const [signal, original] of listeners) {
         for (const listener of process.listeners(signal)) {
-          if (!listeners.includes(listener)) process.removeListener(signal, listener);
+          if (!original.includes(listener)) process.removeListener(signal, listener);
         }
       }
     });
-    let response;
-    let failConfirmation = false;
-    let confirmationCalls = 0;
-    let executions = 0;
-    let expectedTool = 'systemctl_restart';
-    let expectedArguments = { serverAlias: 'test-server', service: 'nginx' };
-    let expectedCommand = "systemctl restart 'nginx'";
-    let expectedSensitive = false;
-    client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      confirmationCalls += 1;
-      assert.equal(request.params.mode, 'form');
-      assert.deepEqual(request.params.requestedSchema.properties, {});
-      assert.equal(request.params.requestedSchema.required, undefined);
-      assert.ok(request.params.message.includes(expectedCommand));
-      if (clientName === 'codex-mcp-client') {
-        assert.deepEqual(request.params._meta, {
-          codex_request_type: 'approval_request', codex_approval_kind: 'mcp_tool_call',
-          codex_strict_auto_review: true, tool_name: expectedTool,
-          ...(expectedSensitive ? { codex_sensitive_action: true } : {}),
-          tool_description: request.params.message,
-          tool_params: expectedArguments
-        });
-      } else {
-        assert.equal(request.params._meta, undefined);
-      }
-      if (failConfirmation) throw new Error('Confirmation unavailable');
-      return response;
+    let approvals = 0;
+    if (supportsElicitation) client.setRequestHandler(ElicitRequestSchema, async () => {
+      approvals += 1;
+      return { action: 'decline' };
     });
     await mcp.server.connect(serverTransport);
     await client.connect(clientTransport);
+    const executed = [];
+    const uploads = [];
+    const downloads = [];
     await withMockedSsh({
-      async executeCommand(_serverConfig, command) {
-        executions += 1;
-        assert.equal(command, expectedCommand);
-        return { stdout: 'restarted', stderr: '', code: 0, signal: null };
-      }
+      executeCommand: async (_server, command) => {
+        executed.push(command);
+        if (command === 'fail-test') throw new Error('Simulated connection failure');
+        return { stdout: 'mock-output', stderr: '', code: 0, signal: null };
+      },
+      runSession: async (_server, action) => action({}),
+      executeOnConn: async (_connection, command) => {
+        executed.push(command);
+        return { stdout: 'batch-output', stderr: '', code: 0, signal: null };
+      },
+      uploadFile: async (...args) => uploads.push(args),
+      downloadFile: async (...args) => downloads.push(args)
     }, async () => {
-      for (response of [{ action: 'accept', content: {} }, { action: 'accept' }, { action: 'decline' }, { action: 'cancel' }]) {
-        const before = executions;
+      const calls = [
+        ['hostname', {}], ['systemctl_restart', { service: 'nginx' }],
+        ['execute_command', { command: 'echo test; rm -f /tmp/mock-only' }],
+        ['rm_safe', { path: '/tmp/mock-only', recursive: true }],
+        ['execute_batch', { commands: [{ name: 'execute_command', arguments: { command: 'echo first; echo second' } }] }],
+        ['upload_file', { localPath: 'mock-upload.txt', remotePath: '/tmp/mock-upload.txt' }],
+        ['download_file', { remotePath: '/tmp/mock-download.txt', localPath: 'mock-download.txt' }],
+        ['ping_server', {}], ['list_working_directories', {}]
+      ];
+      for (const [name, args] of calls) {
+        const result = await client.callTool({ name, arguments: { serverAlias: 'test-server', ...args } });
+        assert.notEqual(result.isError, true, name);
+        const json = JSON.parse(result.content[0].text);
+        assert.equal(json.warning, FULL_ACCESS_WARNING, name);
+        assert.equal(typeof json.result, 'string', name);
+      }
+      assert.ok(executed.includes("rm -rf -- '/tmp/mock-only'"));
+      assert.equal(uploads.length, 1);
+      assert.equal(downloads.length, 1);
+      assert.equal(approvals, 0);
+      for (const args of [{ command: 'fail-test' }, {}]) {
+        const result = await client.callTool({ name: 'execute_command', arguments: { serverAlias: 'test-server', ...args } });
+        assert.equal(result.isError, true);
+        const json = JSON.parse(result.content[0].text);
+        assert.equal(json.warning, FULL_ACCESS_WARNING);
+        assert.equal(typeof json.error, 'string');
+      }
+      const before = executed.length;
+      const other = await client.callTool({ name: 'systemctl_restart', arguments: { serverAlias: 'disabled-server', service: 'nginx' } });
+      assert.equal(other.isError, true);
+      assert.match(other.content[0].text, /Security Violation|read-only/);
+      assert.equal(executed.length, before);
+      const discovery = JSON.parse((await client.callTool({ name: 'list_servers', arguments: {} })).content[0].text);
+      assert.equal(discovery.servers[0].warning, FULL_ACCESS_WARNING);
+      assert.equal(discovery.servers[1].warning, undefined);
+    });
+  });
+}
+
+test('danger mode remains disabled when absent or false and cannot be enabled by tool arguments', async () => {
+  for (const dangerMode of [undefined, false]) {
+    const handlers = new ToolHandlers(createConfigManager({ dangerMode, readOnly: true }), async () => 'yes');
+    await assert.rejects(() => handlers.handleTool('systemctl_restart', { serverAlias: 'test-server', service: 'nginx' }), /read-only/);
+    await assert.rejects(() => handlers.handleTool('hostname', { serverAlias: 'test-server', dangerMode: true }), /dangerMode|additional/);
+  }
+});
+
+for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
+  for (const codexAutoReview of [undefined, false, true]) {
+    test(`MCP confirmation executes only on accept for ${clientName}, auto review ${codexAutoReview}`, async (t) => {
+      const signalListeners = new Map(['SIGINT', 'SIGTERM'].map(signal => [signal, process.listeners(signal)]));
+      const mcp = new MCPServer(createConfigManager({ codexAutoReview }));
+      const client = new Client({ name: clientName, version: '1.0.0' }, {
+        capabilities: { elicitation: { form: {} } }
+      });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      t.after(async () => {
+        await client.close();
+        await mcp.server.close();
+        for (const [signal, listeners] of signalListeners) {
+          for (const listener of process.listeners(signal)) {
+            if (!listeners.includes(listener)) process.removeListener(signal, listener);
+          }
+        }
+      });
+      let response;
+      let failConfirmation = false;
+      let confirmationCalls = 0;
+      let executions = 0;
+      let expectedTool = 'systemctl_restart';
+      let expectedArguments = { serverAlias: 'test-server', service: 'nginx' };
+      let expectedCommand = "systemctl restart 'nginx'";
+      let expectedSensitive = false;
+      let expectedAutoReview = codexAutoReview === true;
+      let expectedClientName = clientName;
+      client.setRequestHandler(ElicitRequestSchema, async (request) => {
+        confirmationCalls += 1;
+        assert.equal(request.params.mode, 'form');
+        assert.deepEqual(request.params.requestedSchema.properties, {});
+        assert.equal(request.params.requestedSchema.required, undefined);
+        assert.ok(request.params.message.includes(expectedCommand));
+        if (expectedClientName === 'codex-mcp-client' && expectedAutoReview) {
+          assert.deepEqual(request.params._meta, {
+            codex_request_type: 'approval_request', codex_approval_kind: 'mcp_tool_call',
+            codex_strict_auto_review: true, tool_name: expectedTool,
+            ...(expectedSensitive ? { codex_sensitive_action: true } : {}),
+            tool_description: request.params.message,
+            tool_params: expectedArguments
+          });
+        } else {
+          assert.equal(request.params._meta, undefined);
+        }
+        if (failConfirmation) throw new Error('Confirmation unavailable');
+        return response;
+      });
+      await mcp.server.connect(serverTransport);
+      await client.connect(clientTransport);
+      await withMockedSsh({
+        async executeCommand(_serverConfig, command) {
+          executions += 1;
+          assert.equal(command, expectedCommand);
+          return { stdout: 'restarted', stderr: '', code: 0, signal: null };
+        }
+      }, async () => {
+        for (response of [{ action: 'accept', content: {} }, { action: 'accept' }, { action: 'decline' }, { action: 'cancel' }]) {
+          const before = executions;
+          const result = await client.callTool({
+            name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+          });
+          const accepted = response.action === 'accept';
+          assert.equal(result.isError === true, !accepted);
+          assert.equal(executions - before, accepted ? 1 : 0);
+        }
+        failConfirmation = true;
         const result = await client.callTool({
           name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
         });
-        const accepted = response.action === 'accept';
-        assert.equal(result.isError === true, !accepted);
-        assert.equal(executions - before, accepted ? 1 : 0);
-      }
-      failConfirmation = true;
-      const result = await client.callTool({
-        name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+        assert.equal(result.isError, true);
+        assert.equal(executions, 2);
+        assert.equal(confirmationCalls, 5);
+        failConfirmation = false;
+        expectedTool = 'execute_command';
+        expectedCommand = 'touch approved-test';
+        expectedArguments = { serverAlias: 'test-server', command: expectedCommand };
+        expectedSensitive = true;
+        for (response of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }]) {
+          const before = executions;
+          const result = await client.callTool({ name: expectedTool, arguments: expectedArguments });
+          const accepted = response.action === 'accept';
+          assert.equal(result.isError === true, !accepted);
+          assert.equal(executions - before, accepted ? 1 : 0);
+        }
+        assert.equal(executions, 3);
+        assert.equal(confirmationCalls, 8);
+        expectedAutoReview = false;
+        expectedArguments = { ...expectedArguments, serverAlias: 'disabled-server' };
+        response = { action: 'accept', content: {} };
+        const disabledResult = await client.callTool({ name: expectedTool, arguments: expectedArguments });
+        assert.notEqual(disabledResult.isError, true);
+        assert.equal(executions, 4);
+        assert.equal(confirmationCalls, 9);
+        expectedAutoReview = codexAutoReview === true;
+        expectedArguments = { ...expectedArguments, serverAlias: 'test-server' };
+        for (const name of ['codex-mcp-client', 'ordinary-client', 'codex-mcp-client']) {
+          expectedClientName = name;
+          const result = await client.callTool({ name: expectedTool, arguments: expectedArguments,
+            _meta: { 'io.modelcontextprotocol/clientInfo': { name, version: '1.0.0' } }
+          });
+          assert.notEqual(result.isError, true);
+        }
+        expectedClientName = clientName;
+        assert.notEqual((await client.callTool({ name: expectedTool, arguments: expectedArguments })).isError, true);
       });
-      assert.equal(result.isError, true);
-      assert.equal(executions, 2);
-      assert.equal(confirmationCalls, 5);
-      failConfirmation = false;
-      expectedTool = 'execute_command';
-      expectedCommand = 'touch approved-test';
-      expectedArguments = { serverAlias: 'test-server', command: expectedCommand };
-      expectedSensitive = true;
-      for (response of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }]) {
-        const before = executions;
-        const result = await client.callTool({ name: expectedTool, arguments: expectedArguments });
-        const accepted = response.action === 'accept';
-        assert.equal(result.isError === true, !accepted);
-        assert.equal(executions - before, accepted ? 1 : 0);
-      }
-      assert.equal(executions, 3);
-      assert.equal(confirmationCalls, 8);
     });
-  });
+  }
 }
 
 test('interactive confirmation shows the exact command and executes after acceptance', async () => {
@@ -1516,6 +1637,48 @@ test('ConfigManager should fail closed for unresolved environment variables and 
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test('ConfigManager requires per-server boolean Codex auto review opt-in', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-ssh-auto-review-'));
+  const configPath = path.join(tempDir, 'config.json');
+  const server = { host: '127.0.0.1', username: 'tester', strictHostKeyChecking: false };
+  try {
+    for (const codexAutoReview of ['true', 1, null]) {
+      fs.writeFileSync(configPath, JSON.stringify({ servers: { invalid: { ...server, codexAutoReview } } }));
+      assert.throws(() => new ConfigManager(configPath), /codexAutoReview must be a boolean/);
+    }
+    fs.writeFileSync(configPath, JSON.stringify({ servers: {
+      enabled: { ...server, codexAutoReview: true }, disabled: { ...server, codexAutoReview: false }, default: server
+    } }));
+    const manager = new ConfigManager(configPath);
+    try {
+      assert.equal(manager.getServerConfig('enabled')?.codexAutoReview, true);
+      assert.equal(manager.getServerConfig('disabled')?.codexAutoReview, false);
+      assert.equal(manager.getServerConfig('default')?.codexAutoReview, undefined);
+    } finally { manager.close(); }
+  } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
+});
+
+test('ConfigManager validates danger mode independently for each server', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-ssh-danger-mode-'));
+  const configPath = path.join(tempDir, 'config.json');
+  const server = { host: 'localhost', username: 'tester', strictHostKeyChecking: false };
+  try {
+    for (const dangerMode of ['true', 1, null]) {
+      fs.writeFileSync(configPath, JSON.stringify({ servers: { invalid: { ...server, dangerMode } } }));
+      assert.throws(() => new ConfigManager(configPath), /dangerMode must be a boolean/);
+    }
+    fs.writeFileSync(configPath, JSON.stringify({ servers: {
+      enabled: { ...server, dangerMode: true }, disabled: { ...server, dangerMode: false }, default: server
+    } }));
+    const manager = new ConfigManager(configPath);
+    try {
+      assert.equal(manager.getServerConfig('enabled').dangerMode, true);
+      assert.equal(manager.getServerConfig('disabled').dangerMode, false);
+      assert.equal(manager.getServerConfig('default').dangerMode, undefined);
+    } finally { manager.close(); }
+  } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
 });
 
 test('ConfigManager keeps hot reload working across atomic file replacements', async () => {

@@ -4,6 +4,7 @@ import { validateToolArguments } from './validation.js';
 import { toolDefinitions } from './definitions.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { FULL_ACCESS_WARNING } from '../danger-mode.js';
 
 const WRITE_TOOLS = new Set([
   'execute_command',
@@ -93,6 +94,10 @@ export interface OperationConfirmationPreview {
   tool: string;
   /** 实际工具参数，供自动审批审阅。 */
   arguments: Record<string, unknown>;
+  /** 本次操作所属服务器是否显式启用 Codex 自动审批。 */
+  codexAutoReview: boolean;
+  /** 当前调用的原始客户端身份，不跨调用共享。 */
+  clientInfo?: unknown;
   server: string;
   riskLevel: 'normal' | 'high' | 'critical';
   riskDetails: string;
@@ -293,7 +298,7 @@ export class ToolHandlers {
    * confirmation and execution.
    */
   private validateToolCommand(name: string, params: any, srv: ServerConfig) {
-    if (name === 'execute_command') {
+    if (name === 'execute_command' && srv.dangerMode !== true) {
       this.validateSingleCommand(params.command);
     }
     if ((name === 'netstat' || name === 'ss') && Array.isArray(params.args)) {
@@ -342,7 +347,7 @@ export class ToolHandlers {
       }
     }
     const command = this.getExecutableCommand(name, params, srv);
-    if (command) {
+    if (command && srv.dangerMode !== true) {
       this.checkBlacklist(command, name === 'execute_command');
     }
   }
@@ -602,7 +607,8 @@ export class ToolHandlers {
     name: string,
     serverAlias: string,
     params: any,
-    srv: ServerConfig
+    srv: ServerConfig,
+    clientInfo?: unknown
   ): OperationConfirmationPreview {
     const riskLevel = this.getConfirmationRiskLevel(name, params);
     const operation = this.buildConfirmationOperation(name, params, srv);
@@ -614,6 +620,8 @@ export class ToolHandlers {
     return {
       tool: name,
       arguments: structuredClone({ serverAlias, ...params }),
+      codexAutoReview: srv.codexAutoReview === true,
+      clientInfo,
       server: serverAlias,
       riskLevel,
       riskDetails,
@@ -629,12 +637,18 @@ export class ToolHandlers {
     };
   }
 
-  public async handleTool(name: string, args: any): Promise<any> {
+  public async handleTool(name: string, args: any, clientInfo?: unknown): Promise<any> {
     validateToolArguments(name, args);
 
     if (name === 'list_servers') {
       const servers = this.configManager.getAllServers();
       if (Object.keys(servers).length === 0) return "No servers configured.";
+      if (Object.values(servers).some(info => info.dangerMode === true)) {
+        return { servers: Object.entries(servers).map(([alias, info]) => ({
+          serverAlias: alias, host: info.host, description: info.desc ?? null,
+          ...(info.dangerMode === true ? { dangerMode: true, warning: FULL_ACCESS_WARNING } : {})
+        })) };
+      }
       return "Available SSH Servers:\n" + Object.entries(servers)
         .map(([alias, info]) => `- [${alias}] ${info.host}${info.desc ? ' (' + info.desc + ')' : ''}`)
         .join('\n');
@@ -653,7 +667,7 @@ export class ToolHandlers {
       }
     }
 
-    if (name === 'rm_safe') this.validateDeletePath(srv, params.path);
+    if (name === 'rm_safe' && srv.dangerMode !== true) this.validateDeletePath(srv, params.path);
 
     this.validateToolCommand(name, params, srv);
 
@@ -665,14 +679,14 @@ export class ToolHandlers {
 
     // --- Confirmation Logic ---
     const isWriteToolCall = this.isWriteToolCall(name, params);
-    const isWriteAction = this.requiresConfirmation(name, params, srv);
+    const isWriteAction = srv.dangerMode !== true && this.requiresConfirmation(name, params, srv);
 
-    if (isWriteToolCall && srv.readOnly) {
+    if (isWriteToolCall && srv.readOnly && srv.dangerMode !== true) {
       throw new Error(`Server '${serverAlias}' is read-only.`);
     }
 
     if (isWriteAction) {
-      const preview = this.buildConfirmationPreview(name, serverAlias, params, srv);
+      const preview = this.buildConfirmationPreview(name, serverAlias, params, srv, clientInfo);
       let interactiveDecision: 'yes' | 'no' | 'unavailable' = 'unavailable';
       if (this.interactiveConfirmation) {
         try {
@@ -723,12 +737,12 @@ export class ToolHandlers {
     }
 
     if (name === 'upload_file') {
-      const localPath = this.resolveAllowedLocalPath(params.localPath, true);
+      const localPath = srv.dangerMode === true ? path.resolve(params.localPath) : this.resolveAllowedLocalPath(params.localPath, true);
       await SSHClient.uploadFile(srv, localPath, params.remotePath, timeout);
       return `Successfully uploaded ${params.localPath} to ${params.remotePath}`;
     }
     if (name === 'download_file') {
-      const localPath = this.resolveAllowedLocalPath(params.localPath, false);
+      const localPath = srv.dangerMode === true ? path.resolve(params.localPath) : this.resolveAllowedLocalPath(params.localPath, false);
       await SSHClient.downloadFile(srv, params.remotePath, localPath, timeout);
       return `Successfully downloaded ${params.remotePath} to ${params.localPath}`;
     }
@@ -770,6 +784,9 @@ export class ToolHandlers {
   }
 
   private buildSafeRemoveCommand(srv: ServerConfig, requestedPath: string, recursive: boolean): string {
+    if (srv.dangerMode === true) {
+      return `rm ${recursive ? '-rf' : '-f'} -- ${this.shellEscape(requestedPath)}`;
+    }
     const roots = this.getAllowedRemoteRoots(srv);
     const allowedPatterns = roots.map((root) => `${this.shellEscape(root)}|${this.shellEscape(root)}/*`).join('|');
     return `target=$(realpath -m -- ${this.shellEscape(requestedPath)}) && case "$target" in ${allowedPatterns}) rm ${recursive ? '-rf' : '-f'} -- "$target" ;; *) echo 'RM_SAFE: resolved path denied' >&2; exit 64 ;; esac`;

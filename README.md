@@ -7,7 +7,7 @@ mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It g
 The service is designed for stateless SSH automation with explicit safety controls: server-level read-only mode, command blacklists, optional whitelists for trusted commands, interactive confirmation, and single-command enforcement for free-form shell execution.
 
 > [!IMPORTANT]
-> Starting with **v2.0.0**, the non-elicitation two-step confirmation fallback has been removed. Write operations that require confirmation now return an error without executing when the MCP client does not support elicitation or when the elicitation request fails. Use an MCP client with elicitation support.
+> Starting with **v2.0.0**, the non-elicitation two-step confirmation fallback has been removed. Write operations that require confirmation now return an error without executing when the MCP client does not support elicitation or when the elicitation request fails. Use an MCP client with elicitation support for operations that require confirmation.
 
 ## Features
 
@@ -15,10 +15,10 @@ The service is designed for stateless SSH automation with explicit safety contro
 - Use password, private key, passphrase, and jump-host SSH connections.
 - Map frequently used remote paths as named working directories.
 - Run read-only system, file, process, network, Git, and Docker inspection tools.
-- Execute controlled write operations only after confirmation unless a command is explicitly whitelisted.
-- Reject shell chaining, pipes, redirection, subshells, and multiline payloads in `execute_command`.
+- Require confirmation for writes in normal mode, with optional whitelisting and per-server Full Access.
+- Enforce single-command shell input in normal mode.
 - Use built-in tools for common operations instead of asking the agent to compose risky shell fragments.
-- Support per-server `readOnly` mode to disable write and modify tools.
+- Configure per-server `readOnly` controls or explicitly enable Full Access with `dangerMode`.
 - Keep operational logs out of MCP stdout; file logs are written under `logDir`.
 
 ## Why Use It
@@ -89,6 +89,7 @@ Minimal config:
       "privateKeyPath": "${HOME}/.ssh/id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "dangerMode": false,
       "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
@@ -128,6 +129,8 @@ Server fields:
 | `privateKeyPath` | string | Path to a private key file. |
 | `passphrase` | string | Private key passphrase. Prefer `${VAR}` placeholders. |
 | `readOnly` | boolean | Disables write and modify tools for this server. |
+| `codexAutoReview` | boolean | Optional, defaults to `false`. Set `true` to enable Codex automatic-review metadata for this server. |
+| `dangerMode` | boolean | Optional, defaults to `false`. Set `true` for Full Access on this server: skip all operation approval and override read-only, command, and path access restrictions. |
 | `strictHostKeyChecking` | boolean | Set to `false` only when you intentionally accept host key bypass. |
 | `hostKeySha256` | string or string[] | Required SSH host-key fingerprint(s) when strict checking is enabled (the default). |
 | `allowedRemoteRoots` | string[] | Optional path roots within which `rm_safe` may delete. |
@@ -168,7 +171,7 @@ Shell and files:
 
 | Tool | Purpose |
 | --- | --- |
-| `execute_command` | Run exactly one shell command segment with confirmation unless whitelisted. |
+| `execute_command` | Run a shell command; single-command and confirmation rules apply unless `dangerMode` is enabled. |
 | `echo` | Print text or variables. |
 | `upload_file` | Upload a local file to the remote server. |
 | `download_file` | Download a remote file to the local machine. |
@@ -279,17 +282,25 @@ Stats, process, and archive tools:
 
 ## Safety Model
 
-Write operations show the server, exact command or operation, and risk level in an interactive confirmation. Accept executes the operation; decline or cancel leaves it unexecuted.
+Set `"dangerMode": true` in the selected `servers.<serverAlias>` block to enable Full Access. It takes precedence over `codexAutoReview`: all tools execute without manual or automatic operation approval, overriding `readOnly`, command blacklists, single-command enforcement, `allowedRemoteRoots`, and `allowedLocalRoots` for that server. Input validation and SSH authentication still apply; other servers remain independent. Successes, failures, and reads return JSON with a `warning` field; text output is placed in `result`. `list_servers` also warns on enabled target entries.
 
-Codex clients receive metadata requesting automatic review. Automatic review is optional: when `approvals_reviewer = "auto_review"` is enabled in Codex, Codex policy decides approval; otherwise, use the normal Accept / Decline / Cancel confirmation. Other clients use standard confirmation.
+Warning text:
 
-When the MCP client does not support elicitation, or when the elicitation request fails, the tool returns an error and does not execute the operation.
+```text
+FULL ACCESS: Danger mode is enabled for this target. All available tools can execute without operation approval. Calls may modify or delete data immediately. Use caution.
+```
+
+When `dangerMode` is disabled, write operations show the server, exact command or operation, and risk level in an interactive confirmation. Accept executes the operation; decline or cancel leaves it unexecuted.
+
+Codex automatic-review integration is disabled by default. Set `"codexAutoReview": true` in the selected `servers.<serverAlias>` block to enable approval metadata for Codex clients. Codex uses automatic review when `approvals_reviewer = "auto_review"` is enabled; otherwise, use normal Accept / Decline / Cancel confirmation. Approval remains subject to Codex policy.
+
+When an operation requires confirmation and the client does not support elicitation or elicitation fails, the tool returns an error without executing.
 
 The server checks that the confirmed parameters match the original request before executing.
 
-`execute_command` accepts only one shell command segment. It rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. Use `execute_batch` or built-in structured tools for multi-step workflows.
+When `dangerMode` is disabled, `execute_command` accepts only one shell command segment. It rejects chaining operators such as `&&`, `||`, `;`, pipes, redirection, subshell syntax, and multiline input. Use `execute_batch` or built-in structured tools for multi-step workflows.
 
-`commandBlacklist` blocks prohibited final command strings. `commandWhitelist` can skip confirmation only for trusted final command strings that match configured regex patterns.
+When `dangerMode` is disabled, `commandBlacklist` blocks prohibited final command strings. `commandWhitelist` can skip confirmation only for trusted final command strings that match configured regex patterns.
 
 For destructive or modifying work, prefer built-in tools such as `mkdir`, `edit_text_file`, `replace_in_file`, `docker_compose_restart`, or `systemctl_restart` over free-form shell commands.
 
@@ -299,7 +310,7 @@ For destructive or modifying work, prefer built-in tools such as `mkdir`, `edit_
 2. Call `ping_server` before work that depends on connectivity.
 3. Call `list_working_directories` when a task refers to a project, logs, or deployment path.
 4. Use read-only tools first to inspect state.
-5. For changes, use built-in structured tools and let the confirmation flow gate execution.
+5. Use built-in structured tools for changes.
 6. Verify the result with a read-only follow-up command or inspection tool.
 
 ## Skill Integration
@@ -308,7 +319,7 @@ This repository includes an SSH MCP skill for agents:
 
 - Skill path: `skills/ssh-mcp/SKILL.md`
 
-Use it when your agent supports skills. It standardizes server discovery, safe command selection, confirmation behavior, and post-action verification.
+Use it when your agent supports skills. It standardizes server discovery, tool selection, parameter usage, and post-action verification.
 
 ## MCP Client Configuration
 

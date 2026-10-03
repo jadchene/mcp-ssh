@@ -88,7 +88,7 @@ export const toolDefinitions: Tool[] = [
   // --- Batch (Core) ---
   {
     name: 'execute_batch',
-    description: 'Run tools sequentially in one SSH session. Unwhitelisted high-risk commands require confirmation.',
+    description: 'Run tools sequentially in one SSH session.',
     inputSchema: baseParams({
       commands: {
         type: 'array',
@@ -111,7 +111,7 @@ export const toolDefinitions: Tool[] = [
   // --- Shell & Basic (Requirements) ---
   {
     name: 'execute_command',
-    description: 'Run one shell command. No chaining, pipes, redirection, subshells, or multiline input. Requires confirmation unless whitelisted.',
+    description: 'Run a shell command on the selected server.',
     inputSchema: baseParams({
       command: { type: 'string' },
       ...cwdParam
@@ -126,7 +126,7 @@ export const toolDefinitions: Tool[] = [
   // --- Files (Requirements) ---
   {
     name: 'upload_file',
-    description: 'File transfer (Local -> Remote). Requires confirmation.',
+    description: 'File transfer (Local -> Remote).',
     inputSchema: baseParams({
       localPath: { type: 'string' },
       remotePath: { type: 'string' }
@@ -134,7 +134,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'download_file',
-    description: 'File transfer (Remote -> Local). Requires confirmation.',
+    description: 'File transfer (Remote -> Local).',
     inputSchema: baseParams({
       remotePath: { type: 'string' },
       localPath: { type: 'string' }
@@ -191,7 +191,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'edit_text_file',
-    description: 'Completely replaces file content. Requires confirmation.',
+    description: 'Completely replaces file content.',
     inputSchema: baseParams({
       filePath: { type: 'string' },
       content: { type: 'string' }
@@ -199,37 +199,37 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'touch',
-    description: 'Updates access time or creates empty file. Requires confirmation.',
+    description: 'Updates access time or creates empty file.',
     inputSchema: baseParams({ filePath: { type: 'string' } }, ['filePath'])
   },
   {
     name: 'mkdir',
-    description: 'Creates a directory. Set parents=true for mkdir -p behavior. Requires confirmation unless whitelisted.',
+    description: 'Creates a directory. Set parents=true for mkdir -p behavior.',
     inputSchema: baseParams({ path: { type: 'string' }, parents: { type: 'boolean' } }, ['path'])
   },
   {
     name: 'mv',
-    description: 'Move or rename a file or directory. Requires confirmation unless whitelisted.',
+    description: 'Move or rename a file or directory.',
     inputSchema: baseParams({ source: { type: 'string' }, destination: { type: 'string' }, force: { type: 'boolean' } }, ['source', 'destination'])
   },
   {
     name: 'cp',
-    description: 'Copy a file or directory. Set recursive=true for directories. Requires confirmation unless whitelisted.',
+    description: 'Copy a file or directory. Set recursive=true for directories.',
     inputSchema: baseParams({ source: { type: 'string' }, destination: { type: 'string' }, recursive: { type: 'boolean' }, preserve: { type: 'boolean' } }, ['source', 'destination'])
   },
   {
     name: 'append_text_file',
-    description: 'Append text to a file, creating it if needed. Requires confirmation unless whitelisted.',
+    description: 'Append text to a file, creating it if needed.',
     inputSchema: baseParams({ filePath: { type: 'string' }, content: { type: 'string' } }, ['filePath', 'content'])
   },
   {
     name: 'replace_in_file',
-    description: 'Replace literal text inside a file. Set replaceAll=false to replace only the first occurrence. Requires confirmation unless whitelisted.',
+    description: 'Replace literal text inside a file. Set replaceAll=false to replace only the first occurrence.',
     inputSchema: baseParams({ filePath: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' }, replaceAll: { type: 'boolean' } }, ['filePath', 'search', 'replace'])
   },
   {
     name: 'rm_safe',
-    description: 'Delete a path under allowedRemoteRoots. Requires confirmation.',
+    description: 'Delete a remote file or directory.',
     inputSchema: baseParams({ path: { type: 'string' }, recursive: { type: 'boolean' } }, ['path'])
   },
   {
@@ -253,17 +253,17 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'git_fetch',
-    description: 'Updates remote tracking refs. Requires confirmation unless whitelisted.',
+    description: 'Updates remote tracking refs.',
     inputSchema: baseParams({ ...cwdParam, all: { type: 'boolean' }, prune: { type: 'boolean' } })
   },
   {
     name: 'git_pull',
-    description: 'Pulls latest changes. Requires confirmation.',
+    description: 'Pulls latest changes.',
     inputSchema: baseParams({ ...cwdParam })
   },
   {
     name: 'git_switch',
-    description: 'Switches branches, or creates one with create=true. Requires confirmation unless whitelisted.',
+    description: 'Switches branches, or creates one with create=true.',
     inputSchema: baseParams({ ...cwdParam, branch: { type: 'string' }, create: { type: 'boolean' }, startPoint: { type: 'string' } }, ['branch'])
   },
   {
@@ -280,17 +280,17 @@ export const toolDefinitions: Tool[] = [
   // --- Docker & Compose (Requirements) ---
   {
     name: 'docker_compose_up',
-    description: 'Deploy docker stack. Requires confirmation.',
+    description: 'Deploy docker stack.',
     inputSchema: baseParams({ ...cwdParam }, ['cwd'])
   },
   {
     name: 'docker_compose_down',
-    description: 'Remove docker stack. Requires confirmation.',
+    description: 'Remove docker stack.',
     inputSchema: baseParams({ ...cwdParam }, ['cwd'])
   },
   {
     name: 'docker_compose_stop',
-    description: 'Stop docker stack. Requires confirmation.',
+    description: 'Stop docker stack.',
     inputSchema: baseParams({ ...cwdParam }, ['cwd'])
   },
   {
@@ -300,12 +300,12 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'docker_compose_restart',
-    description: 'Restart compose stack. Requires confirmation.',
+    description: 'Restart compose stack.',
     inputSchema: baseParams({ ...cwdParam }, ['cwd'])
   },
   {
     name: 'docker_compose_pull',
-    description: 'Pull images defined by the compose stack. Requires confirmation.',
+    description: 'Pull images defined by the compose stack.',
     inputSchema: baseParams({ ...cwdParam, service: { type: 'string' } }, ['cwd'])
   },
   {
@@ -320,7 +320,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'docker_compose_exec',
-    description: 'Run one process inside a compose service container without shell expansion. Requires confirmation unless whitelisted.',
+    description: 'Run one process inside a compose service container without shell expansion.',
     inputSchema: baseParams({
       ...cwdParam,
       service: { type: 'string' },
@@ -341,7 +341,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'docker_exec',
-    description: 'Run one process inside a running container without shell expansion. Requires confirmation unless whitelisted.',
+    description: 'Run one process inside a running container without shell expansion.',
     inputSchema: baseParams({ container: { type: 'string' }, command: { type: 'string' }, args: { type: 'array', items: { type: 'string' } }, user: { type: 'string' }, workdir: { type: 'string' } }, ['container', 'command'])
   },
   {
@@ -356,42 +356,42 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'docker_pull',
-    description: 'Pull an image from a registry. Requires confirmation.',
+    description: 'Pull an image from a registry.',
     inputSchema: baseParams({ image: { type: 'string' } }, ['image'])
   },
   {
     name: 'docker_cp',
-    description: 'Copy files/folders between a container and the local filesystem. Requires confirmation.',
+    description: 'Copy files/folders between a container and the local filesystem.',
     inputSchema: baseParams({ source: { type: 'string' }, destination: { type: 'string' } }, ['source', 'destination'])
   },
   {
     name: 'docker_stop',
-    description: 'Stop one or more running containers. Requires confirmation.',
+    description: 'Stop one or more running containers.',
     inputSchema: baseParams({ container: { type: 'string' } }, ['container'])
   },
   {
     name: 'docker_rm',
-    description: 'Remove one or more containers. Requires confirmation.',
+    description: 'Remove one or more containers.',
     inputSchema: baseParams({ container: { type: 'string' } }, ['container'])
   },
   {
     name: 'docker_start',
-    description: 'Start one or more stopped containers. Requires confirmation.',
+    description: 'Start one or more stopped containers.',
     inputSchema: baseParams({ container: { type: 'string' } }, ['container'])
   },
   {
     name: 'docker_restart',
-    description: 'Restart one or more running containers. Requires confirmation unless whitelisted.',
+    description: 'Restart one or more running containers.',
     inputSchema: baseParams({ container: { type: 'string' } }, ['container'])
   },
   {
     name: 'docker_rmi',
-    description: 'Remove one or more images. Requires confirmation.',
+    description: 'Remove one or more images.',
     inputSchema: baseParams({ image: { type: 'string' } }, ['image'])
   },
   {
     name: 'docker_commit',
-    description: 'Create a new image from a container\'s changes. Requires confirmation.',
+    description: 'Create a new image from a container\'s changes.',
     inputSchema: baseParams({ container: { type: 'string' }, repository: { type: 'string' } }, ['container', 'repository'])
   },
   {
@@ -401,17 +401,17 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'docker_load',
-    description: 'Load an image from a tar archive or STDIN. Requires confirmation.',
+    description: 'Load an image from a tar archive or STDIN.',
     inputSchema: baseParams({ path: { type: 'string' } }, ['path'])
   },
   {
     name: 'docker_save',
-    description: 'Save one or more images to a tar archive. Requires confirmation.',
+    description: 'Save one or more images to a tar archive.',
     inputSchema: baseParams({ image: { type: 'string' }, path: { type: 'string' } }, ['image', 'path'])
   },
   {
     name: 'docker_build',
-    description: 'Build a docker image from a build context. Supports options such as tag, dockerfile, build args, no-cache, and fixed host networking. Requires confirmation unless whitelisted.',
+    description: 'Build a docker image from a build context. Supports options such as tag, dockerfile, build args, no-cache, and fixed host networking.',
     inputSchema: baseParams({
       ...cwdParam,
       context: { type: 'string' },
@@ -431,27 +431,27 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'systemctl_restart',
-    description: 'Restart system service. Requires confirmation.',
+    description: 'Restart system service.',
     inputSchema: baseParams({ service: { type: 'string' } }, ['service'])
   },
   {
     name: 'systemctl_start',
-    description: 'Start system service. Requires confirmation.',
+    description: 'Start system service.',
     inputSchema: baseParams({ service: { type: 'string' } }, ['service'])
   },
   {
     name: 'systemctl_stop',
-    description: 'Stop system service. Requires confirmation.',
+    description: 'Stop system service.',
     inputSchema: baseParams({ service: { type: 'string' } }, ['service'])
   },
   {
     name: 'systemctl_enable',
-    description: 'Enable system service at boot. Requires confirmation unless whitelisted.',
+    description: 'Enable system service at boot.',
     inputSchema: baseParams({ service: { type: 'string' } }, ['service'])
   },
   {
     name: 'systemctl_disable',
-    description: 'Disable system service at boot. Requires confirmation unless whitelisted.',
+    description: 'Disable system service at boot.',
     inputSchema: baseParams({ service: { type: 'string' } }, ['service'])
   },
   {
@@ -484,7 +484,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'firewall_cmd',
-    description: 'Structured firewall control. Supports action=list|add-port|remove-port|reload with optional zone, permanent, and listTarget. Requires confirmation unless whitelisted.',
+    description: 'Structured firewall control. Supports action=list|add-port|remove-port|reload with optional zone, permanent, and listTarget.',
     inputSchema: baseParams({
       action: { type: 'string', enum: ['list', 'add-port', 'remove-port', 'reload'] },
       listTarget: { type: 'string', enum: ['ports', 'services', 'all'] },
@@ -525,7 +525,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'curl_http',
-    description: 'Perform an HTTP request with structured method, URL, headers, and optional body. Requires confirmation unless whitelisted.',
+    description: 'Perform an HTTP request with structured method, URL, headers, and optional body.',
     inputSchema: baseParams({ method: { type: 'string' }, url: { type: 'string' }, headers: { type: 'array', items: { type: 'string' } }, body: { type: 'string' }, timeoutSeconds: { type: 'integer', minimum: 1, maximum: 3600 }, followRedirects: { type: 'boolean' } }, ['method', 'url'])
   },
 
@@ -547,7 +547,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'kill_process',
-    description: 'Send a signal to a process ID. Requires confirmation unless whitelisted.',
+    description: 'Send a signal to a process ID.',
     inputSchema: baseParams({ pid: { type: 'integer', minimum: 1, maximum: 2147483647 }, signal: { type: 'string' } }, ['pid'])
   },
   {
@@ -592,37 +592,37 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'chmod',
-    description: 'Change file mode bits. Requires confirmation unless whitelisted.',
+    description: 'Change file mode bits.',
     inputSchema: baseParams({ mode: { type: 'string' }, path: { type: 'string' }, recursive: { type: 'boolean' } }, ['mode', 'path'])
   },
   {
     name: 'chown',
-    description: 'Change file owner and group. Requires confirmation unless whitelisted.',
+    description: 'Change file owner and group.',
     inputSchema: baseParams({ owner: { type: 'string' }, path: { type: 'string' }, recursive: { type: 'boolean' } }, ['owner', 'path'])
   },
   {
     name: 'ln',
-    description: 'Create a link. Uses symbolic=true by default for symlinks. Requires confirmation unless whitelisted.',
+    description: 'Create a link. Uses symbolic=true by default for symlinks.',
     inputSchema: baseParams({ target: { type: 'string' }, linkPath: { type: 'string' }, symbolic: { type: 'boolean' }, force: { type: 'boolean' } }, ['target', 'linkPath'])
   },
   {
     name: 'tar_create',
-    description: 'Create a tar archive from one or more source paths. Requires confirmation unless whitelisted.',
+    description: 'Create a tar archive from one or more source paths.',
     inputSchema: baseParams({ sourcePaths: { type: 'array', items: { type: 'string' } }, outputPath: { type: 'string' }, gzip: { type: 'boolean' } }, ['sourcePaths', 'outputPath'])
   },
   {
     name: 'tar_extract',
-    description: 'Extract a tar archive into a destination directory. Requires confirmation unless whitelisted.',
+    description: 'Extract a tar archive into a destination directory.',
     inputSchema: baseParams({ archivePath: { type: 'string' }, destination: { type: 'string' }, gzip: { type: 'boolean' } }, ['archivePath', 'destination'])
   },
   {
     name: 'zip',
-    description: 'Create a zip archive from one or more source paths. Requires confirmation unless whitelisted.',
+    description: 'Create a zip archive from one or more source paths.',
     inputSchema: baseParams({ sourcePaths: { type: 'array', items: { type: 'string' } }, outputPath: { type: 'string' }, recursive: { type: 'boolean' } }, ['sourcePaths', 'outputPath'])
   },
   {
     name: 'unzip',
-    description: 'Extract a zip archive into a destination directory. Requires confirmation unless whitelisted.',
+    description: 'Extract a zip archive into a destination directory.',
     inputSchema: baseParams({ archivePath: { type: 'string' }, destination: { type: 'string' }, overwrite: { type: 'boolean' } }, ['archivePath', 'destination'])
   }
 ];
