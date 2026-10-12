@@ -111,8 +111,16 @@ If `allowedRemoteRoots` is absent, `rm_safe` is disabled for that server.
 3. Create the required local transfer directories and add minimal `allowedLocalRoots` entries.
 4. Add narrow `allowedRemoteRoots` entries only on servers that need `rm_safe`.
 5. Confirm every `${ENV_VAR}` used by the configuration exists in the service environment.
-6. Start the service and run `list_servers`, `ping_server`, and `list_working_directories`.
+6. Start the service, call `list_servers`, and call `connect(serverAlias)` on an enabled server. Use the returned `sessionId` for `ping_server` and remote operations; `list_working_directories` still uses `serverAlias`.
 7. Test upload, download, and deletion against non-production paths before rollout.
 8. Remove any temporary `strictHostKeyChecking: false` setting.
+
+## Version 3 persistent sessions
+
+Remote tools require `sessionId`; sending only `serverAlias` is rejected. Refresh the client's tool schemas after upgrading. Only `connect` creates an SSH connection and persistent POSIX-compatible shell. Individual calls and batches share directory, variables, and functions. Call `disconnect` when finished; expired IDs cannot be reused or automatically reconnected.
+
+Optional global configuration: `sessionIdleTimeoutMs` defaults to `1800000` (30 minutes), and `maxSessions` defaults to `32`, including connections being established. Idle expiry pauses while an operation executes, but approval waiting does not pause expiry. Command or transfer timeout invalidates the session.
+
+Each `servers.<alias>.enable` defaults to `true`. Set it to `false` to retain configuration while hiding the server from discovery, blocking connections, and invalidating existing sessions. Disabled entries do not load credentials or key files until re-enabled. Changing connection identity, host keys, credentials, or jump-host configuration invalidates existing sessions; permission changes apply on subsequent calls.
 
 See [`config.example.json`](../config.example.json) for a complete example.

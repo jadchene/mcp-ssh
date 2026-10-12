@@ -55,6 +55,12 @@ export function validateToolArguments(name: string, args: unknown): void {
   if (Buffer.byteLength(serialized) > 1024 * 1024) {
     throw new Error(`Invalid arguments for '${name}': payload exceeds the 1 MiB limit.`);
   }
+  // JSON 已确认可序列化，递归拒绝无法传给 Shell 或文件接口的 NUL。
+  const rejectNul = (input: unknown): void => {
+    if (typeof input === 'string' && input.includes('\0')) throw new Error(`Invalid arguments for '${name}': NUL bytes are forbidden.`);
+    if (input && typeof input === 'object') Object.values(input).forEach(rejectNul);
+  };
+  rejectNul(value);
   if (!validator(value)) {
     throw new Error(`Invalid arguments for '${name}': ${formatErrors(validator.errors, validator.schema as object)}`);
   }
@@ -65,10 +71,15 @@ export function validateToolArguments(name: string, args: unknown): void {
       if (command.name === 'execute_batch') {
         throw new Error(`Invalid arguments for 'execute_batch': nested batches are not supported (commands/${index}).`);
       }
+      if (['connect', 'disconnect', 'list_servers', 'list_working_directories', 'upload_file', 'download_file'].includes(command.name)) {
+        throw new Error(`commands/${index}: tool '${command.name}' is not supported in a batch.`);
+      }
       try {
+        const child = command.arguments as Record<string, unknown>;
+        if ('sessionId' in child || 'serverAlias' in child) throw new Error('Batch child must inherit the parent sessionId; target overrides are forbidden.');
         validateToolArguments(command.name, {
-          serverAlias: (value as { serverAlias: string }).serverAlias,
-          ...(command.arguments as Record<string, unknown>)
+          ...child,
+          sessionId: (value as { sessionId: string }).sessionId
         });
       } catch (error) {
         throw new Error(`commands/${index}: ${error instanceof Error ? error.message : 'Invalid tool arguments'}`);

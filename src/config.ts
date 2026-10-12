@@ -20,6 +20,8 @@ export interface ProxyConfig {
 }
 
 export interface ServerConfig {
+  /** 是否启用该服务器，省略时为 true。 */
+  enable?: boolean;
   host: string;
   port?: number;
   username: string;
@@ -45,6 +47,10 @@ export interface ServerConfig {
 }
 
 export interface AppConfig {
+  /** 会话空闲失效时间，默认 30 分钟。 */
+  sessionIdleTimeoutMs?: number;
+  /** 同时存在的会话和建立中连接的数量上限，默认 32。 */
+  maxSessions?: number;
   logDir?: string;
   commandBlacklist?: string[];
   commandWhitelist?: string[];
@@ -59,12 +65,14 @@ export class ConfigManager {
   private config: AppConfig;
   private watchTimeout: NodeJS.Timeout | null = null;
   private watcher: fs.FSWatcher | null = null;
+  /** 配置更新后的订阅通知。 */
+  private listeners = new Set<() => void>();
 
   constructor(configPath: string) {
     this.configPath = path.resolve(configPath);
     this.config = { servers: {} };
     if (process.env.MCP_SSH_LOG_DIR) {
-      updateLogTransports(process.env.MCP_SSH_LOG_DIR);
+      updateLogTransports(this.resolveConfigPath(process.env.MCP_SSH_LOG_DIR));
     }
     this.config = this.loadConfig(true) ?? { servers: {} };
     this.watchConfig();
@@ -76,6 +84,11 @@ export class ConfigManager {
       if (resolved === undefined) throw new Error(`Required environment variable '${name}' is not set.`);
       return resolved;
     });
+  }
+
+  /** 配置引用的相对路径统一以配置文件目录为基准。 */
+  private resolveConfigPath(value: string): string {
+    return path.resolve(path.dirname(this.configPath), this.substituteEnvVars(value));
   }
 
   private validatePort(port: number, label: string) {
@@ -91,6 +104,12 @@ export class ConfigManager {
     if (config.defaultTimeout !== undefined && (!Number.isInteger(config.defaultTimeout) || config.defaultTimeout < 100 || config.defaultTimeout > 3600000)) {
       throw new Error(`defaultTimeout must be an integer from 100 to 3600000 milliseconds.`);
     }
+    if (config.sessionIdleTimeoutMs !== undefined && (!Number.isInteger(config.sessionIdleTimeoutMs) || config.sessionIdleTimeoutMs < 100 || config.sessionIdleTimeoutMs > 86400000)) {
+      throw new Error('sessionIdleTimeoutMs must be an integer from 100 to 86400000 milliseconds.');
+    }
+    if (config.maxSessions !== undefined && (!Number.isInteger(config.maxSessions) || config.maxSessions < 1 || config.maxSessions > 1024)) {
+      throw new Error('maxSessions must be an integer from 1 to 1024.');
+    }
     if (config.allowedLocalRoots !== undefined && (!Array.isArray(config.allowedLocalRoots) || config.allowedLocalRoots.some((root) => typeof root !== 'string' || !root.trim()))) {
       throw new Error(`allowedLocalRoots must be an array of non-empty paths.`);
     }
@@ -99,6 +118,9 @@ export class ConfigManager {
         throw new Error(`Server '${alias}' must define non-empty host and username values.`);
       }
       this.validatePort(server.port ?? 22, `Server '${alias}' port`);
+      if (server.enable !== undefined && typeof server.enable !== 'boolean') {
+        throw new Error(`Server '${alias}' enable must be a boolean.`);
+      }
       if (server.codexAutoReview !== undefined && typeof server.codexAutoReview !== 'boolean') {
         throw new Error(`Server '${alias}' codexAutoReview must be a boolean.`);
       }
@@ -130,10 +152,9 @@ export class ConfigManager {
     if (proxy.password) proxy.password = this.substituteEnvVars(proxy.password);
     if (proxy.passphrase) proxy.passphrase = this.substituteEnvVars(proxy.passphrase);
     if (proxy.privateKeyPath) {
-      proxy.privateKeyPath = this.substituteEnvVars(proxy.privateKeyPath);
+      proxy.privateKeyPath = this.resolveConfigPath(proxy.privateKeyPath);
       try {
-        const keyPath = path.resolve(path.dirname(this.configPath), proxy.privateKeyPath);
-        proxy.privateKey = fs.readFileSync(keyPath, 'utf8');
+        proxy.privateKey = fs.readFileSync(proxy.privateKeyPath, 'utf8');
       } catch (err) {
         throw new Error(`Failed to read proxy private key '${proxy.privateKeyPath}': ${(err as Error).message}`);
       }
@@ -152,37 +173,32 @@ export class ConfigManager {
 
       const parsed = JSON.parse(rawData) as AppConfig;
       this.validateConfig(parsed);
-      if (parsed.logDir) updateLogTransports(this.substituteEnvVars(parsed.logDir));
-
-      const maskedConfig = JSON.parse(JSON.stringify(parsed)); // For logging
+      if (parsed.logDir) updateLogTransports(this.resolveConfigPath(parsed.logDir));
 
       for (const key of Object.keys(parsed.servers || {})) {
         const srv = parsed.servers[key];
-        const logSrv = maskedConfig.servers[key];
+        srv.enable ??= true;
+
+        // 禁用的服务器保留配置，但不读取临时不可用的密钥或环境凭据。
+        if (srv.enable === false) continue;
 
         if (srv.host) srv.host = this.substituteEnvVars(srv.host);
         if (srv.username) srv.username = this.substituteEnvVars(srv.username);
 
-        // Mask passwords/passphrases in log object
         if (srv.password) {
           srv.password = this.substituteEnvVars(srv.password);
-          logSrv.password = "********";
         }
         if (srv.passphrase) {
           srv.passphrase = this.substituteEnvVars(srv.passphrase);
-          logSrv.passphrase = "********";
         }
         if (srv.proxyJump) {
           srv.proxyJump = this.processProxy(srv.proxyJump);
-          if (logSrv.proxyJump.password) logSrv.proxyJump.password = "********";
-          if (logSrv.proxyJump.passphrase) logSrv.proxyJump.passphrase = "********";
         }
 
         if (srv.privateKeyPath) {
-          srv.privateKeyPath = this.substituteEnvVars(srv.privateKeyPath);
+          srv.privateKeyPath = this.resolveConfigPath(srv.privateKeyPath);
           try {
-            const keyPath = path.resolve(path.dirname(this.configPath), srv.privateKeyPath);
-            srv.privateKey = fs.readFileSync(keyPath, 'utf8');
+            srv.privateKey = fs.readFileSync(srv.privateKeyPath, 'utf8');
           } catch (err) {
             throw new Error(`Failed to read private key for server '${key}': ${(err as Error).message}`);
           }
@@ -209,19 +225,20 @@ export class ConfigManager {
         const nextConfig = this.loadConfig();
         if (!nextConfig) return;
         this.config = nextConfig;
+        for (const listener of this.listeners) listener();
         logger.info('Config hot-reloaded.');
       }, 100);
     });
   }
 
   public getServerConfig(alias: string): ServerConfig | undefined {
-    return this.config.servers[alias];
+    return Object.hasOwn(this.config.servers, alias) ? this.config.servers[alias] : undefined;
   }
   
-  public getAllServers(): Record<string, { desc?: string, host: string, dangerMode?: boolean }> {
-    const result: any = {};
+  public getAllServers(): Record<string, { desc?: string, host: string, enable: boolean, dangerMode?: boolean }> {
+    const result: ReturnType<ConfigManager['getAllServers']> = Object.create(null);
     for (const [alias, srv] of Object.entries(this.config.servers)) {
-      result[alias] = { desc: srv.desc, host: srv.host, ...(srv.dangerMode === true ? { dangerMode: true } : {}) };
+      result[alias] = { desc: srv.desc, host: srv.host, enable: srv.enable !== false, ...(srv.dangerMode === true ? { dangerMode: true } : {}) };
     }
     return result;
   }
@@ -238,9 +255,21 @@ export class ConfigManager {
     return this.config.defaultTimeout ?? 60000;
   }
 
+  /** 返回空闲失效时间。 */
+  public getSessionIdleTimeout(): number { return this.config.sessionIdleTimeoutMs ?? 1800000; }
+
+  /** 返回包括建立中连接的会话容量。 */
+  public getMaxSessions(): number { return this.config.maxSessions ?? 32; }
+
+  /** 订阅配置更新，返回取消订阅函数。 */
+  public onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
   public getAllowedLocalRoots(): string[] {
     return (this.config.allowedLocalRoots || []).map((root) =>
-      path.resolve(path.dirname(this.configPath), this.substituteEnvVars(root))
+      this.resolveConfigPath(root)
     );
   }
 
@@ -249,5 +278,6 @@ export class ConfigManager {
     this.watchTimeout = null;
     this.watcher?.close();
     this.watcher = null;
+    this.listeners.clear();
   }
 }

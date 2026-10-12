@@ -1,36 +1,46 @@
 ﻿import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-function baseParams(properties: any = {}, required: string[] = []): Tool['inputSchema'] {
+function baseParams(properties: any = {}, required: string[] = [], target = 'sessionId'): Tool['inputSchema'] {
   return {
     type: 'object',
     additionalProperties: false,
     properties: {
-      serverAlias: { type: 'string', minLength: 1, maxLength: 128, description: 'Exact serverAlias from list_servers.' },
+      [target]: { type: 'string', minLength: 1, maxLength: 128, description: target === 'sessionId' ? 'Live sessionId returned by connect. Expired sessions require an explicit new connect.' : 'Exact serverAlias from list_servers.' },
       ...properties
     },
-    required: ['serverAlias', ...required]
+    required: [target, ...required]
   };
 }
 
 const grepParam = { grep: { type: 'string', description: 'Output regex filter; not a shell command.' } };
-const cwdParam = { cwd: { type: 'string', minLength: 1, maxLength: 4096, description: 'Working directory or alias from list_working_directories; applies to this call.' } };
+const cwdParam = { cwd: { type: 'string', minLength: 1, maxLength: 4096, description: 'Change the session directory before execution; persists for later calls. Accepts a path or configured alias.' } };
 
 export const toolDefinitions: Tool[] = [
   // --- Discovery (Core) ---
   {
     name: 'list_servers',
-    description: 'List configured server aliases, hosts, and descriptions without connecting.',
+    description: 'List enabled server aliases, hosts, and descriptions without connecting. Disabled servers are hidden.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
+    name: 'connect',
+    description: 'Create an SSH connection and persistent POSIX shell. Returns sessionId and idle expiry. Only this tool can establish a connection; enable=false prevents connecting.',
+    inputSchema: baseParams({}, [], 'serverAlias')
+  },
+  {
+    name: 'disconnect',
+    description: 'Close a session and its shell. Busy sessions must finish first. The old sessionId cannot execute again.',
+    inputSchema: baseParams()
+  },
+  {
     name: 'ping_server',
-    description: 'Test SSH connectivity.',
+    description: 'Probe an existing session without connecting or resetting shell state.',
     inputSchema: baseParams()
   },
   {
     name: 'list_working_directories',
     description: 'List configured working-directory aliases.',
-    inputSchema: baseParams()
+    inputSchema: baseParams({}, [], 'serverAlias')
   },
   {
     name: 'check_dependencies',
@@ -81,14 +91,14 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'cd',
-    description: 'Change working directory for subsequent tools in execute_batch; calls otherwise have independent sessions.',
+    description: 'Change the persistent shell directory for all later calls on this sessionId.',
     inputSchema: baseParams({ path: { type: 'string' } }, ['path'])
   },
 
   // --- Batch (Core) ---
   {
     name: 'execute_batch',
-    description: 'Run tools sequentially in one SSH session.',
+    description: 'Run command tools sequentially in the existing persistent shell. State is shared with calls before and after the batch. Children inherit sessionId; management and transfers are excluded.',
     inputSchema: baseParams({
       commands: {
         type: 'array',
@@ -111,7 +121,7 @@ export const toolDefinitions: Tool[] = [
   // --- Shell & Basic (Requirements) ---
   {
     name: 'execute_command',
-    description: 'Run a shell command on the selected server.',
+    description: 'Run a non-interactive foreground command in the persistent shell, inheriting prior directory, variables, and functions. No implicit connections or shell resets.',
     inputSchema: baseParams({
       command: { type: 'string' },
       ...cwdParam
@@ -119,14 +129,14 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'echo',
-    description: 'Print text or variables.',
+    description: 'Print literal text. Shell variables are not expanded; use execute_command to read a variable.',
     inputSchema: baseParams({ text: { type: 'string' } }, ['text'])
   },
 
   // --- Files (Requirements) ---
   {
     name: 'upload_file',
-    description: 'File transfer (Local -> Remote).',
+    description: 'Upload a local file through the existing session. Relative remote paths use its current shell directory.',
     inputSchema: baseParams({
       localPath: { type: 'string' },
       remotePath: { type: 'string' }
@@ -134,7 +144,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'download_file',
-    description: 'File transfer (Remote -> Local).',
+    description: 'Download through the existing session. Relative remote paths use its current shell directory; normal mode requires local write approval.',
     inputSchema: baseParams({
       remotePath: { type: 'string' },
       localPath: { type: 'string' }

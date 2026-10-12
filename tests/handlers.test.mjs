@@ -9,12 +9,40 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { ToolHandlers } from '../dist/tools/handlers.js';
+import { ToolHandlers as ActualToolHandlers } from '../dist/tools/handlers.js';
 import { SSHClient } from '../dist/ssh.js';
 import { ConfigManager } from '../dist/config.js';
-import { MCPServer } from '../dist/mcp.js';
+import { MCPServer as ActualMCPServer } from '../dist/mcp.js';
 import { FULL_ACCESS_WARNING } from '../dist/danger-mode.js';
 
+/** 现有操作测试使用预先建立的会话夹具，实际连接生命周期另行集成验证。 */
+function createSessionFixture(config) {
+  return {
+    get(sessionId) {
+      const serverAlias = sessionId === 'test-session' ? 'test-server' : sessionId === 'disabled-session' ? 'disabled-server' : undefined;
+      if (!serverAlias) throw new Error('Session expired');
+      return { serverAlias, server: config.getServerConfig(serverAlias), connection: {}, revision: 0 };
+    },
+    getAlias(sessionId) { return sessionId === 'test-session' ? 'test-server' : 'disabled-server'; },
+    async inspectDirectory() { return '/fixture'; },
+    async use(sessionId, action) { return action(this.get(sessionId).connection); },
+    close() {}
+  };
+}
+/** 工具单元测试的已连接会话适配器。
+ * @author chenjd
+ * @created 2026-10-12 14:00:00
+ */
+class ToolHandlers extends ActualToolHandlers {
+  constructor(config, confirmation) { super(config, confirmation, createSessionFixture(config)); }
+}
+/** MCP 单元测试的已连接会话适配器。
+ * @author chenjd
+ * @created 2026-10-12 14:00:00
+ */
+class MCPServer extends ActualMCPServer {
+  constructor(config) { super(config, createSessionFixture(config)); }
+}
 /**
  * Build a lightweight config manager stub for ToolHandlers tests.
  */
@@ -55,6 +83,7 @@ function createConfigManager({
     getAllowedLocalRoots() {
       return allowedLocalRoots;
     },
+    close() {},
     getAllServers() {
       return { 'test-server': this.getServerConfig('test-server'), 'disabled-server': this.getServerConfig('disabled-server') };
     }
@@ -100,7 +129,7 @@ test('execute_command should bypass confirmation when command matches whitelist'
     }
   }, () =>
     handlers.handleTool('execute_command', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       command: 'docker ps'
     })
   );
@@ -117,7 +146,7 @@ test('execute_command should reject chained shell segments', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('execute_command', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         command: 'docker ps && reboot'
       }),
     /single command/
@@ -132,7 +161,7 @@ test('blacklist should still reject a command even when whitelist also matches',
   await assert.rejects(
     () =>
       handlers.handleTool('execute_command', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         command: 'rm -rf /'
       }),
     /Security Violation/
@@ -145,7 +174,7 @@ test('execute_batch should still require confirmation when any high-risk sub-com
   );
 
   await assert.rejects(() => handlers.handleTool('execute_batch', {
-    serverAlias: 'test-server',
+    sessionId: 'test-session',
     commands: [
       {
         name: 'execute_command',
@@ -194,11 +223,6 @@ for (const supportsElicitation of [false, true]) {
         if (command === 'fail-test') throw new Error('Simulated connection failure');
         return { stdout: 'mock-output', stderr: '', code: 0, signal: null };
       },
-      runSession: async (_server, action) => action({}),
-      executeOnConn: async (_connection, command) => {
-        executed.push(command);
-        return { stdout: 'batch-output', stderr: '', code: 0, signal: null };
-      },
       uploadFile: async (...args) => uploads.push(args),
       downloadFile: async (...args) => downloads.push(args)
     }, async () => {
@@ -212,7 +236,7 @@ for (const supportsElicitation of [false, true]) {
         ['ping_server', {}], ['list_working_directories', {}]
       ];
       for (const [name, args] of calls) {
-        const result = await client.callTool({ name, arguments: { serverAlias: 'test-server', ...args } });
+        const result = await client.callTool({ name, arguments: { ...(name === 'list_working_directories' ? { serverAlias: 'test-server' } : { sessionId: 'test-session' }), ...args } });
         assert.notEqual(result.isError, true, name);
         const json = JSON.parse(result.content[0].text);
         assert.equal(json.warning, FULL_ACCESS_WARNING, name);
@@ -223,14 +247,14 @@ for (const supportsElicitation of [false, true]) {
       assert.equal(downloads.length, 1);
       assert.equal(approvals, 0);
       for (const args of [{ command: 'fail-test' }, {}]) {
-        const result = await client.callTool({ name: 'execute_command', arguments: { serverAlias: 'test-server', ...args } });
+        const result = await client.callTool({ name: 'execute_command', arguments: { sessionId: 'test-session', ...args } });
         assert.equal(result.isError, true);
         const json = JSON.parse(result.content[0].text);
         assert.equal(json.warning, FULL_ACCESS_WARNING);
         assert.equal(typeof json.error, 'string');
       }
       const before = executed.length;
-      const other = await client.callTool({ name: 'systemctl_restart', arguments: { serverAlias: 'disabled-server', service: 'nginx' } });
+      const other = await client.callTool({ name: 'systemctl_restart', arguments: { sessionId: 'disabled-session', service: 'nginx' } });
       assert.equal(other.isError, true);
       assert.match(other.content[0].text, /Security Violation|read-only/);
       assert.equal(executed.length, before);
@@ -244,8 +268,8 @@ for (const supportsElicitation of [false, true]) {
 test('danger mode remains disabled when absent or false and cannot be enabled by tool arguments', async () => {
   for (const dangerMode of [undefined, false]) {
     const handlers = new ToolHandlers(createConfigManager({ dangerMode, readOnly: true }), async () => 'yes');
-    await assert.rejects(() => handlers.handleTool('systemctl_restart', { serverAlias: 'test-server', service: 'nginx' }), /read-only/);
-    await assert.rejects(() => handlers.handleTool('hostname', { serverAlias: 'test-server', dangerMode: true }), /dangerMode|additional/);
+    await assert.rejects(() => handlers.handleTool('systemctl_restart', { sessionId: 'test-session', service: 'nginx' }), /read-only/);
+    await assert.rejects(() => handlers.handleTool('hostname', { sessionId: 'test-session', dangerMode: true }), /dangerMode|additional/);
   }
 });
 
@@ -272,7 +296,7 @@ for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
       let confirmationCalls = 0;
       let executions = 0;
       let expectedTool = 'systemctl_restart';
-      let expectedArguments = { serverAlias: 'test-server', service: 'nginx' };
+      let expectedArguments = { sessionId: 'test-session', service: 'nginx' };
       let expectedCommand = "systemctl restart 'nginx'";
       let expectedSensitive = false;
       let expectedAutoReview = codexAutoReview === true;
@@ -309,7 +333,7 @@ for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
         for (response of [{ action: 'accept', content: {} }, { action: 'accept' }, { action: 'decline' }, { action: 'cancel' }]) {
           const before = executions;
           const result = await client.callTool({
-            name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+            name: 'systemctl_restart', arguments: { sessionId: 'test-session', service: 'nginx' }
           });
           const accepted = response.action === 'accept';
           assert.equal(result.isError === true, !accepted);
@@ -317,7 +341,7 @@ for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
         }
         failConfirmation = true;
         const result = await client.callTool({
-          name: 'systemctl_restart', arguments: { serverAlias: 'test-server', service: 'nginx' }
+          name: 'systemctl_restart', arguments: { sessionId: 'test-session', service: 'nginx' }
         });
         assert.equal(result.isError, true);
         assert.equal(executions, 2);
@@ -325,7 +349,7 @@ for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
         failConfirmation = false;
         expectedTool = 'execute_command';
         expectedCommand = 'touch approved-test';
-        expectedArguments = { serverAlias: 'test-server', command: expectedCommand };
+        expectedArguments = { sessionId: 'test-session', command: expectedCommand };
         expectedSensitive = true;
         for (response of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }]) {
           const before = executions;
@@ -337,14 +361,14 @@ for (const clientName of ['confirmation-test', 'codex-mcp-client']) {
         assert.equal(executions, 3);
         assert.equal(confirmationCalls, 8);
         expectedAutoReview = false;
-        expectedArguments = { ...expectedArguments, serverAlias: 'disabled-server' };
+        expectedArguments = { ...expectedArguments, sessionId: 'disabled-session' };
         response = { action: 'accept', content: {} };
         const disabledResult = await client.callTool({ name: expectedTool, arguments: expectedArguments });
         assert.notEqual(disabledResult.isError, true);
         assert.equal(executions, 4);
         assert.equal(confirmationCalls, 9);
         expectedAutoReview = codexAutoReview === true;
-        expectedArguments = { ...expectedArguments, serverAlias: 'test-server' };
+        expectedArguments = { ...expectedArguments, sessionId: 'test-session' };
         for (const name of ['codex-mcp-client', 'ordinary-client', 'codex-mcp-client']) {
           expectedClientName = name;
           const result = await client.callTool({ name: expectedTool, arguments: expectedArguments,
@@ -373,7 +397,7 @@ test('interactive confirmation shows the exact command and executes after accept
       return { stdout: 'restarted', stderr: '', code: 0, signal: null };
     }
   }, () => handlers.handleTool('systemctl_restart', {
-    serverAlias: 'test-server', service: 'nginx'
+    sessionId: 'test-session', service: 'nginx'
   }));
 
   assert.equal(result, 'restarted');
@@ -394,7 +418,7 @@ test('interactive no clearly reports user rejection and does not execute', async
     }
   }, async () => {
     await assert.rejects(() => handlers.handleTool('docker_rm', {
-      serverAlias: 'test-server', container: 'old-app'
+      sessionId: 'test-session', container: 'old-app'
     }), /user explicitly rejected.*not executed/i);
   });
 
@@ -409,10 +433,7 @@ test('execute_batch should execute directly when every high-risk sub-command is 
   const executedCommands = [];
 
   const result = await withMockedSsh({
-    async runSession(_serverConfig, action) {
-      return action({});
-    },
-    async executeOnConn(_conn, command) {
+    async executeCommand(_connection, command) {
       executedCommands.push(command);
       return {
         stdout: `ran:${command}`,
@@ -423,7 +444,7 @@ test('execute_batch should execute directly when every high-risk sub-command is 
     }
   }, () =>
     handlers.handleTool('execute_batch', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       commands: [
         {
           name: 'execute_command',
@@ -456,7 +477,7 @@ test('built-in write tool should bypass confirmation when its generated command 
     }
   }, () =>
     handlers.handleTool('docker_compose_restart', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       cwd: '/srv/app'
     })
   );
@@ -484,7 +505,7 @@ test('built-in write tool should shell-escape dangerous parameter content', asyn
     }
   }, () =>
     handlers.handleTool('docker_rm', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       container: 'demo && reboot'
     })
   );
@@ -512,7 +533,7 @@ test('mkdir should build mkdir -p command and support whitelist', async () => {
     }
   }, () =>
     handlers.handleTool('mkdir', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/data/releases',
       parents: true
     })
@@ -541,7 +562,7 @@ test('append_text_file should append decoded content to the target file', async 
     }
   }, () =>
     handlers.handleTool('append_text_file', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       filePath: '/tmp/app.log',
       content: 'hello'
     })
@@ -570,7 +591,7 @@ test('docker_exec should build a non-shell exec command with escaped args', asyn
     }
   }, () =>
     handlers.handleTool('docker_exec', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       container: 'api',
       command: '/bin/ls',
       args: ['-l', '/data folder']
@@ -600,7 +621,7 @@ test('curl_http should build a structured POST request with body piping', async 
     }
   }, () =>
     handlers.handleTool('curl_http', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       method: 'POST',
       url: 'https://example.com/api',
       headers: ['Content-Type: application/json'],
@@ -632,7 +653,7 @@ test('firewall_cmd should build structured list command and support whitelist', 
     }
   }, () =>
     handlers.handleTool('firewall_cmd', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       action: 'list',
       listTarget: 'ports',
       permanent: true
@@ -651,7 +672,7 @@ test('firewall_cmd should reject dangerous port token input', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('firewall_cmd', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         action: 'add-port',
         port: '8080/tcp && reboot'
       }),
@@ -667,7 +688,7 @@ test('netstat should use argument array and reject unsafe tokens', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('netstat', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         args: ['-tuln', '&&', 'reboot']
       }),
     /single token|forbidden shell control/
@@ -682,7 +703,7 @@ test('grep parameter should reject shell substitution payloads', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('cat', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         filePath: '/tmp/app.log',
         grep: '$(reboot)'
       }),
@@ -709,7 +730,7 @@ test('head should build a bounded file preview command', async () => {
     }
   }, () =>
     handlers.handleTool('head', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       filePath: '/tmp/app.log',
       lines: 2
     })
@@ -738,7 +759,7 @@ test('sed should build an inclusive line range command', async () => {
     }
   }, () =>
     handlers.handleTool('sed', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       filePath: '/tmp/app.log',
       startLine: 100,
       endLine: 140
@@ -757,7 +778,7 @@ test('sed should reject reversed line ranges', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('sed', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         filePath: '/tmp/app.log',
         startLine: 140,
         endLine: 100
@@ -774,7 +795,7 @@ test('head should reject non-positive line counts', async () => {
   await assert.rejects(
     () =>
       handlers.handleTool('head', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         filePath: '/tmp/app.log',
         lines: 0
       }),
@@ -801,7 +822,7 @@ test('ll should support hidden files with all=true', async () => {
     }
   }, () =>
     handlers.handleTool('ll', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       all: true
     })
   );
@@ -829,7 +850,7 @@ test('grep_r should build a recursive grep command with include and exclude-dir 
     }
   }, () =>
     handlers.handleTool('grep_r', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/srv/app',
       pattern: 'match',
       ignoreCase: true,
@@ -861,7 +882,7 @@ test('grep_r should support symmetric context output', async () => {
     }
   }, () =>
     handlers.handleTool('grep_r', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/srv/app',
       pattern: 'match',
       context: 2
@@ -890,7 +911,7 @@ test('docker_build should support tag, dockerfile, build args, no-cache, and fix
     }
   }, () =>
     handlers.handleTool('docker_build', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       context: '.',
       tag: 'demo:latest',
       dockerfile: 'Dockerfile.prod',
@@ -927,7 +948,7 @@ test('docker_compose_pull should build a service-scoped pull command', async () 
     }
   }, () =>
     handlers.handleTool('docker_compose_pull', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       cwd: '/srv/app',
       service: 'api'
     })
@@ -956,7 +977,7 @@ test('docker_compose_ps should build a compose status command', async () => {
     }
   }, () =>
     handlers.handleTool('docker_compose_ps', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       cwd: '/srv/app'
     })
   );
@@ -984,7 +1005,7 @@ test('docker_compose_config should build a config render command', async () => {
     }
   }, () =>
     handlers.handleTool('docker_compose_config', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       cwd: '/srv/app'
     })
   );
@@ -1012,7 +1033,7 @@ test('docker_compose_exec should build a non-shell compose exec command', async 
     }
   }, () =>
     handlers.handleTool('docker_compose_exec', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       cwd: '/srv/app',
       service: 'api',
       command: '/bin/sh',
@@ -1044,7 +1065,7 @@ test('stat should build a file metadata inspection command', async () => {
     }
   }, () =>
     handlers.handleTool('stat', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       filePath: '/tmp/app.log'
     })
   );
@@ -1072,7 +1093,7 @@ test('find should support type, maxDepth, and pathPattern filters', async () => 
     }
   }, () =>
     handlers.handleTool('find', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/srv/app',
       maxDepth: 3,
       type: 'f',
@@ -1103,7 +1124,7 @@ test('journalctl should support follow and until filters', async () => {
     }
   }, () =>
     handlers.handleTool('journalctl', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       unit: 'nginx',
       since: '1 hour ago',
       until: 'now',
@@ -1134,7 +1155,7 @@ test('which should build a command path lookup', async () => {
     }
   }, () =>
     handlers.handleTool('which', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       commandName: 'docker'
     })
   );
@@ -1161,7 +1182,7 @@ test('lsof should support path, process, and port filters', async () => {
     }
   }, () =>
     handlers.handleTool('lsof', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/var/log/nginx/access.log',
       process: 'nginx',
       port: 443
@@ -1185,7 +1206,7 @@ test('env should build an environment listing command', async () => {
     }
   }, () =>
     handlers.handleTool('env', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1206,7 +1227,7 @@ test('file should build a file type inspection command', async () => {
     }
   }, () =>
     handlers.handleTool('file', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       path: '/tmp/app.log'
     })
   );
@@ -1228,7 +1249,7 @@ test('hostname should build a hostname command', async () => {
     }
   }, () =>
     handlers.handleTool('hostname', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1249,7 +1270,7 @@ test('uptime should build an uptime command', async () => {
     }
   }, () =>
     handlers.handleTool('uptime', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1270,7 +1291,7 @@ test('free should build a memory usage command', async () => {
     }
   }, () =>
     handlers.handleTool('free', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1291,7 +1312,7 @@ test('df_inode should build an inode usage command', async () => {
     }
   }, () =>
     handlers.handleTool('df_inode', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1312,7 +1333,7 @@ test('mount should build a mounted filesystems command', async () => {
     }
   }, () =>
     handlers.handleTool('mount', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1333,7 +1354,7 @@ test('id should build an identity command', async () => {
     }
   }, () =>
     handlers.handleTool('id', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1354,7 +1375,7 @@ test('uname should default to full kernel info', async () => {
     }
   }, () =>
     handlers.handleTool('uname', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1375,7 +1396,7 @@ test('ip_route should build a route inspection command', async () => {
     }
   }, () =>
     handlers.handleTool('ip_route', {
-      serverAlias: 'test-server'
+      sessionId: 'test-session'
     })
   );
 
@@ -1401,7 +1422,7 @@ test('systemctl_enable should build an enable command and support whitelist', as
     }
   }, () =>
     handlers.handleTool('systemctl_enable', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       service: 'nginx'
     })
   );
@@ -1429,7 +1450,7 @@ test('systemctl_disable should build a disable command and support whitelist', a
     }
   }, () =>
     handlers.handleTool('systemctl_disable', {
-      serverAlias: 'test-server',
+      sessionId: 'test-session',
       service: 'nginx'
     })
   );
@@ -1449,7 +1470,7 @@ test('read-only server should still reject whitelisted built-in write tools', as
   await assert.rejects(
     () =>
       handlers.handleTool('docker_compose_restart', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         cwd: '/srv/app'
       }),
     /read-only/
@@ -1467,7 +1488,7 @@ test('read-only server should reject mkdir even when it is whitelisted', async (
   await assert.rejects(
     () =>
       handlers.handleTool('mkdir', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         path: '/data/releases',
         parents: true
       }),
@@ -1486,7 +1507,7 @@ test('read-only server should reject execute_batch even when write sub-commands 
   await assert.rejects(
     () =>
       handlers.handleTool('execute_batch', {
-        serverAlias: 'test-server',
+        sessionId: 'test-session',
         commands: [
           {
             name: 'docker_compose_restart',
@@ -1508,7 +1529,7 @@ test('runtime schema should reject numeric command injection before SSH executio
     }
   }, async () => {
     await assert.rejects(() => handlers.handleTool('ping_host', {
-      serverAlias: 'test-server', host: '127.0.0.1', count: '1; id'
+      sessionId: 'test-session', host: '127.0.0.1', count: '1; id'
     }), /Invalid arguments/);
   });
   assert.equal(executed, false);
@@ -1517,28 +1538,28 @@ test('runtime schema should reject numeric command injection before SSH executio
 test('runtime schema should reject unknown properties', async () => {
   const handlers = new ToolHandlers(createConfigManager());
   await assert.rejects(() => handlers.handleTool('hostname', {
-    serverAlias: 'test-server', unexpected: true
-  }), /unsupported parameter "unexpected".*Allowed parameters: serverAlias, grep/);
+    sessionId: 'test-session', unexpected: true
+  }), /unsupported parameter "unexpected".*Allowed parameters: sessionId, grep/);
 });
 
 test('execute_command blacklist should inspect quoted interpreter payloads', async () => {
   const handlers = new ToolHandlers(createConfigManager({ whitelist: ['.*'] }));
   await assert.rejects(() => handlers.handleTool('execute_command', {
-    serverAlias: 'test-server', command: "sh -c 'rm -rf /'"
+    sessionId: 'test-session', command: "sh -c 'rm -rf /'"
   }), /Security Violation/);
 });
 
 test('execute_command should reject alternate recursive rm flag spellings', async () => {
   const handlers = new ToolHandlers(createConfigManager({ whitelist: ['.*'] }));
   await assert.rejects(() => handlers.handleTool('execute_command', {
-    serverAlias: 'test-server', command: 'rm --recursive --force /'
+    sessionId: 'test-session', command: 'rm --recursive --force /'
   }), /use rm_safe/);
 });
 
 test('rm_safe should normalize traversal before restricted-path checks', async () => {
   const handlers = new ToolHandlers(createConfigManager());
   await assert.rejects(() => handlers.handleTool('rm_safe', {
-    serverAlias: 'test-server', path: '/etc/..', recursive: true
+    sessionId: 'test-session', path: '/etc/..', recursive: true
   }), /restricted path/);
 });
 
@@ -1553,7 +1574,7 @@ test('rm_safe should resolve the remote target and enforce allowedRemoteRoots at
       return { stdout: '', stderr: '', code: 0, signal: null };
     }
   }, () => handlers.handleTool('rm_safe', {
-    serverAlias: 'test-server', path: '/srv/app/link', recursive: true
+    sessionId: 'test-session', path: '/srv/app/link', recursive: true
   }));
   assert.match(command, /realpath -m/);
   assert.match(command, /case "\$target"/);
@@ -1563,24 +1584,24 @@ test('rm_safe should resolve the remote target and enforce allowedRemoteRoots at
 test('touch and download_file should be blocked on read-only servers', async () => {
   const handlers = new ToolHandlers(createConfigManager({ readOnly: true }));
   await assert.rejects(() => handlers.handleTool('touch', {
-    serverAlias: 'test-server', filePath: '/tmp/new-file'
+    sessionId: 'test-session', filePath: '/tmp/new-file'
   }), /read-only/);
   await assert.rejects(() => handlers.handleTool('download_file', {
-    serverAlias: 'test-server', remotePath: '/tmp/source', localPath: './target'
+    sessionId: 'test-session', remotePath: '/tmp/source', localPath: './target'
   }), /read-only/);
 });
 
 test('download_file should require confirmation before writing locally', async () => {
   const handlers = new ToolHandlers(createConfigManager());
   await assert.rejects(() => handlers.handleTool('download_file', {
-    serverAlias: 'test-server', remotePath: '/tmp/source', localPath: './target'
+    sessionId: 'test-session', remotePath: '/tmp/source', localPath: './target'
   }), /requires interactive elicitation/);
 });
 
 test('download_file should reject confirmed writes outside allowedLocalRoots', async () => {
   const handlers = new ToolHandlers(createConfigManager(), async () => 'yes');
   await assert.rejects(() => handlers.handleTool('download_file', {
-    serverAlias: 'test-server',
+    sessionId: 'test-session',
     remotePath: '/tmp/source',
     localPath: path.join(os.tmpdir(), 'mcp-ssh-outside-target')
   }), /outside allowedLocalRoots/);
@@ -1598,27 +1619,6 @@ test('SSH config should require and verify SHA-256 host fingerprints by default'
   });
   assert.equal(config.hostVerifier(key), true);
   assert.equal(config.hostVerifier(Buffer.from('different-key')), false);
-});
-
-test('executeOnConn should shell-escape cwd and cap captured output', async () => {
-  let executedCommand = '';
-  const conn = {
-    exec(command, callback) {
-      executedCommand = command;
-      const stream = new EventEmitter();
-      stream.stderr = new EventEmitter();
-      callback(null, stream);
-      queueMicrotask(() => {
-        stream.emit('data', Buffer.alloc(40000, 97));
-        stream.emit('close', 0, null);
-      });
-    },
-    end() {}
-  };
-  const result = await SSHClient.executeOnConn(conn, 'pwd', '/tmp; id', 1000);
-  assert.equal(executedCommand, "cd -- '/tmp; id' && pwd");
-  assert.equal(result.stdoutTruncated, true);
-  assert.ok(Buffer.byteLength(result.stdout) < 30100);
 });
 
 test('ConfigManager should fail closed for unresolved environment variables and invalid regex', () => {
@@ -1709,7 +1709,7 @@ test('ConfigManager keeps hot reload working across atomic file replacements', a
 test('batch argument errors identify the failed command index and field', async () => {
   const handlers = new ToolHandlers(createConfigManager());
   await assert.rejects(() => handlers.handleTool('execute_batch', {
-    serverAlias: 'test-server',
+    sessionId: 'test-session',
     commands: [{ name: 'hostname', arguments: {} }, { name: 'head', arguments: { lines: 1 } }]
   }), /commands\/1:.*missing required parameter "filePath"/);
 });

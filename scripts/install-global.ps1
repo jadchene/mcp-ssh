@@ -103,12 +103,14 @@ if ([string]::IsNullOrWhiteSpace($packageName)) {
 
 Push-Location $resolvedProjectRoot
 try {
+    if ($WhatIfPreference) {
+        [void]$PSCmdlet.ShouldProcess($resolvedProjectRoot, "Build, package, and globally install $packageName")
+        return
+    }
     Invoke-Step -FilePath "npm" -Arguments @("install") -WorkingDirectory $resolvedProjectRoot -Description "Install project dependencies"
     Invoke-Step -FilePath "npm" -Arguments @("run", "build") -WorkingDirectory $resolvedProjectRoot -Description "Build the MCP SSH service"
-    $packOutput = Invoke-CaptureStep -FilePath "npm" -Arguments @("pack", "--json") -Description "Create a package tarball for global installation"
+    $packOutput = Invoke-CaptureStep -FilePath "npm" -Arguments @("pack", "--json", "--ignore-scripts") -Description "Create a package tarball for global installation"
     $tarballPath = Resolve-PackedTarballPath -PackOutput $packOutput -ProjectRoot $resolvedProjectRoot
-
-    Invoke-Step -FilePath "npm" -Arguments @("uninstall", "-g", $packageName) -WorkingDirectory $resolvedProjectRoot -Description "Remove any previous global installation of $packageName"
 
     Invoke-Step -FilePath "npm" -Arguments @("install", "-g", $tarballPath) -WorkingDirectory $resolvedProjectRoot -Description "Install the packaged mcp-ssh-service tarball globally"
 

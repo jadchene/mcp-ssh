@@ -1,5 +1,8 @@
 ﻿import { SSHClient } from '../ssh.js';
 import { ConfigManager, ServerConfig } from '../config.js';
+import { SessionPool } from '../sessions.js';
+import { SessionError } from '../session-error.js';
+import type { SSHConnection } from '../ssh.js';
 import { validateToolArguments } from './validation.js';
 import { toolDefinitions } from './definitions.js';
 import fs from 'node:fs';
@@ -57,6 +60,7 @@ const WRITE_TOOLS = new Set([
 ]);
 
 const READ_TOOLS = new Set([
+  'connect', 'disconnect',
   'list_servers', 'ping_server', 'list_working_directories', 'check_dependencies',
   'get_system_info', 'hostname', 'id', 'uname', 'uptime', 'free', 'env', 'pwd', 'cd', 'echo',
   'll', 'cat', 'head', 'tail', 'sed', 'grep', 'grep_r', 'find',
@@ -112,8 +116,15 @@ export type InteractiveConfirmation = (
 export class ToolHandlers {
   constructor(
     private configManager: ConfigManager,
-    private interactiveConfirmation?: InteractiveConfirmation
+    private interactiveConfirmation?: InteractiveConfirmation,
+    private sessions = new SessionPool(configManager)
   ) {}
+
+  /** 供服务日志和警告定位会话服务器。 */
+  public getSessionServerAlias(sessionId: string): string | undefined { return this.sessions.getAlias(sessionId); }
+
+  /** 服务关闭时释放全部会话。 */
+  public close(): void { this.sessions.close(); }
 
   /**
    * Build regex list from config patterns using case-insensitive matching to keep
@@ -133,7 +144,7 @@ export class ToolHandlers {
 
   private resolveCwd(srv: ServerConfig, cwd?: string): string | undefined {
     if (!cwd) return undefined;
-    if (srv.workingDirectories && srv.workingDirectories[cwd]) {
+    if (srv.workingDirectories && Object.hasOwn(srv.workingDirectories, cwd)) {
       return srv.workingDirectories[cwd].path;
     }
     return cwd;
@@ -298,6 +309,10 @@ export class ToolHandlers {
    * confirmation and execution.
    */
   private validateToolCommand(name: string, params: any, srv: ServerConfig) {
+    if (name === 'execute_command') {
+      const unquoted = this.stripQuotedLiterals(params.command);
+      if (/(^|[^&<>])&([^&>]|$)/.test(unquoted)) throw new Error('Background shell jobs are not supported in persistent sessions. Use foreground commands.');
+    }
     if (name === 'execute_command' && srv.dangerMode !== true) {
       this.validateSingleCommand(params.command);
     }
@@ -363,7 +378,7 @@ export class ToolHandlers {
       case 'env': return 'env';
       case 'check_dependencies': return `for cmd in ${params.commands.map((cmd: string) => this.shellEscape(cmd)).join(' ')}; do which "$cmd" || echo "$cmd not found"; done`;
       case 'pwd': return 'pwd';
-      case 'cd': return `cd ${this.shellEscape(params.path)}`;
+      case 'cd': return `cd -- ${this.shellEscape(srv ? this.resolveCwd(srv, params.path)! : params.path)}`;
       case 'll': return `ls -l${params.all ? 'a' : ''}`;
       case 'cat': return `cat ${this.shellEscape(params.filePath)}`;
       case 'head': return `head -n ${params.lines || 40} ${this.shellEscape(params.filePath)}`;
@@ -608,7 +623,8 @@ export class ToolHandlers {
     serverAlias: string,
     params: any,
     srv: ServerConfig,
-    clientInfo?: unknown
+    clientInfo?: unknown,
+    currentDirectory?: string
   ): OperationConfirmationPreview {
     const riskLevel = this.getConfirmationRiskLevel(name, params);
     const operation = this.buildConfirmationOperation(name, params, srv);
@@ -619,7 +635,7 @@ export class ToolHandlers {
         : 'This operation changes state but no destructive pattern was detected.';
     return {
       tool: name,
-      arguments: structuredClone({ serverAlias, ...params }),
+      arguments: structuredClone(params),
       codexAutoReview: srv.codexAutoReview === true,
       clientInfo,
       server: serverAlias,
@@ -629,6 +645,9 @@ export class ToolHandlers {
       message:
         `Review this SSH operation before execution.\n\n` +
         `Server: ${serverAlias} (${srv.host})\n` +
+        `Session: ${params.sessionId}\n` +
+        `Current directory: ${currentDirectory}\n` +
+        (params.cwd ? `Requested directory: ${this.resolveCwd(srv, params.cwd)}\n` : '') +
         `Tool: ${name}\n` +
         `Risk Level: ${riskLevel.toUpperCase()}\n` +
         `Risk Details: ${riskDetails}\n\n` +
@@ -642,30 +661,26 @@ export class ToolHandlers {
 
     if (name === 'list_servers') {
       const servers = this.configManager.getAllServers();
-      if (Object.keys(servers).length === 0) return "No servers configured.";
-      if (Object.values(servers).some(info => info.dangerMode === true)) {
-        return { servers: Object.entries(servers).map(([alias, info]) => ({
-          serverAlias: alias, host: info.host, description: info.desc ?? null,
-          ...(info.dangerMode === true ? { dangerMode: true, warning: FULL_ACCESS_WARNING } : {})
-        })) };
-      }
-      return "Available SSH Servers:\n" + Object.entries(servers)
-        .map(([alias, info]) => `- [${alias}] ${info.host}${info.desc ? ' (' + info.desc + ')' : ''}`)
-        .join('\n');
+      return { servers: Object.entries(servers).filter(([, info]) => info.enable !== false).map(([alias, info]) => ({
+        serverAlias: alias, host: info.host, description: info.desc ?? null, enable: info.enable !== false,
+        ...(info.dangerMode === true ? { dangerMode: true, warning: FULL_ACCESS_WARNING } : {})
+      })) };
     }
 
-    const { serverAlias, ...params } = args;
-    const srv = this.getServerConfig(serverAlias);
+    if (name === 'connect') return this.sessions.connect(args.serverAlias);
+    if (name === 'disconnect') return this.sessions.disconnect(args.sessionId);
+    if (name === 'list_working_directories') {
+      const server = this.getServerConfig(args.serverAlias);
+      if (server.enable === false) throw new SessionError('SERVER_DISABLED', `Server '${args.serverAlias}' is disabled.`);
+      if (!server.workingDirectories || !Object.keys(server.workingDirectories).length) return `No directory mappings for '${args.serverAlias}'.`;
+      return `Working Directories for [${args.serverAlias}]:\n` + Object.entries(server.workingDirectories)
+        .map(([alias, info]) => `  - ${alias}: ${info.path} (${info.desc})`).join('\n');
+    }
+
+    const { sessionId, ...params } = args;
+    const context = this.sessions.get(sessionId);
+    const { serverAlias, server: srv } = context;
     const timeout = this.configManager.getDefaultTimeout();
-
-    if (name === 'ping_server') {
-      try {
-        await SSHClient.runSession(srv, async () => true);
-        return `Successfully connected to server '${serverAlias}' (${srv.host}). Configuration is valid.`;
-      } catch (err: any) {
-        return `Connection failed for server '${serverAlias}': ${err.message}`;
-      }
-    }
 
     if (name === 'rm_safe' && srv.dangerMode !== true) this.validateDeletePath(srv, params.path);
 
@@ -673,6 +688,7 @@ export class ToolHandlers {
 
     if (name === 'execute_batch') {
       for (const cmd of params.commands || []) {
+        if (cmd.name === 'rm_safe' && srv.dangerMode !== true) this.validateDeletePath(srv, cmd.arguments.path);
         this.validateToolCommand(cmd.name, cmd.arguments, srv);
       }
     }
@@ -684,9 +700,13 @@ export class ToolHandlers {
     if (isWriteToolCall && srv.readOnly && srv.dangerMode !== true) {
       throw new Error(`Server '${serverAlias}' is read-only.`);
     }
+    if (srv.dangerMode !== true && (name === 'upload_file' || name === 'download_file')) {
+      this.resolveAllowedLocalPath(params.localPath, name === 'upload_file');
+    }
 
     if (isWriteAction) {
-      const preview = this.buildConfirmationPreview(name, serverAlias, params, srv, clientInfo);
+      const currentDirectory = await this.sessions.inspectDirectory(sessionId);
+      const preview = this.buildConfirmationPreview(name, serverAlias, { sessionId, ...params }, srv, clientInfo, currentDirectory);
       let interactiveDecision: 'yes' | 'no' | 'unavailable' = 'unavailable';
       if (this.interactiveConfirmation) {
         try {
@@ -703,53 +723,62 @@ export class ToolHandlers {
       }
     }
 
-    // --- Execution Logic ---
+    // 审批等待不冻结过期或权限，执行前重新检查目标与当前规则。
+    const latest = this.sessions.get(sessionId);
+    if (isWriteAction && JSON.stringify(srv) !== JSON.stringify(latest.server)) throw new SessionError('SESSION_CHANGED', 'Server policy changed during approval; review and retry.');
+    if (latest.server.dangerMode !== true && latest.server.readOnly && isWriteToolCall) throw new Error(`Server '${serverAlias}' is read-only.`);
+    this.validateToolCommand(name, params, latest.server);
+    for (const cmd of name === 'execute_batch' ? params.commands : []) {
+      if (cmd.name === 'rm_safe' && latest.server.dangerMode !== true) this.validateDeletePath(latest.server, cmd.arguments.path);
+      this.validateToolCommand(cmd.name, cmd.arguments, latest.server);
+    }
+    if (name === 'rm_safe' && latest.server.dangerMode !== true) this.validateDeletePath(latest.server, params.path);
+    if (!isWriteAction && latest.server.dangerMode !== true && this.requiresConfirmation(name, params, latest.server)) {
+      throw new SessionError('SESSION_CHANGED', 'Approval policy changed; review and retry this operation.');
+    }
+    return this.sessions.use(sessionId, (connection) => this.executeTool(name, params, latest.server, connection, timeout), isWriteAction ? context.revision : undefined);
+  }
+
+  /** 仅使用池中的连接执行，批次共享当前 Shell 状态。 */
+  private async executeTool(name: string, params: any, srv: ServerConfig, connection: SSHConnection, timeout: number): Promise<any> {
+    if (name === 'ping_server') {
+      const result = await SSHClient.executeCommand(connection, ':', undefined, timeout);
+      if (result.code !== 0) throw new Error('Session probe failed.');
+      return 'Session is connected.';
+    }
     if (name === 'execute_batch') {
       const commands: any[] = params.commands;
-      let results: string[] = [];
-      let currentBatchCwd = this.resolveCwd(srv, params.cwd);
-
-      return await SSHClient.runSession(srv, async (conn) => {
-        for (const cmd of commands) {
-          if (cmd.name === 'cd') {
-            currentBatchCwd = this.resolveCwd(srv, cmd.arguments.path);
-            results.push(`Directory changed to: ${currentBatchCwd}`);
-            continue;
-          }
-          let cmdStr = this.getExecutableCommand(cmd.name, cmd.arguments, srv);
-          if (!cmdStr) { results.push(`[${cmd.name}] Error: Not supported in batch.`); continue; }
-          const res = await SSHClient.executeOnConn(conn, cmdStr, currentBatchCwd, timeout);
-          results.push(`[${cmd.name}]\n${res.stdout}${res.stderr ? '\n[STDERR]\n' + res.stderr : ''}`);
-        }
-        return results.join('\n\n---\n\n');
-      });
+      const results: string[] = [];
+      if (params.cwd) {
+        const change = await SSHClient.executeCommand(connection, ':', this.resolveCwd(srv, params.cwd), timeout);
+        if (change.code !== 0) throw new Error(`Cannot change batch directory: ${change.stderr}`);
+      }
+      for (const cmd of commands) {
+        let cmdStr = this.getExecutableCommand(cmd.name, cmd.arguments, srv);
+        if (cmd.name === 'ping_server') cmdStr = ':';
+        if (!cmdStr) throw new Error(`Tool '${cmd.name}' is not supported in a batch.`);
+        const res = await SSHClient.executeCommand(connection, cmdStr, this.resolveCwd(srv, cmd.arguments.cwd), timeout);
+        results.push(`[${cmd.name}]\n${res.stdout}${res.stderr ? '\n[STDERR]\n' + res.stderr : ''}${res.code ? '\n[Exited with code ' + res.code + ']' : ''}`);
+      }
+      return results.join('\n\n---\n\n');
     }
 
     const cwd = this.resolveCwd(srv, params.cwd);
 
-    if (name === 'list_working_directories') {
-      if (!srv.workingDirectories || Object.keys(srv.workingDirectories).length === 0) {
-        return `No directory mappings for '${serverAlias}'.`;
-      }
-      return `Working Directories for [${serverAlias}]:\n` + Object.entries(srv.workingDirectories)
-        .map(([alias, info]) => `  - ${alias}: ${info.path} (${info.desc})`)
-        .join('\n');
-    }
-
     if (name === 'upload_file') {
       const localPath = srv.dangerMode === true ? path.resolve(params.localPath) : this.resolveAllowedLocalPath(params.localPath, true);
-      await SSHClient.uploadFile(srv, localPath, params.remotePath, timeout);
+      await SSHClient.uploadFile(connection, localPath, await this.resolveRemotePath(connection, params.remotePath, timeout), timeout);
       return `Successfully uploaded ${params.localPath} to ${params.remotePath}`;
     }
     if (name === 'download_file') {
       const localPath = srv.dangerMode === true ? path.resolve(params.localPath) : this.resolveAllowedLocalPath(params.localPath, false);
-      await SSHClient.downloadFile(srv, params.remotePath, localPath, timeout);
+      await SSHClient.downloadFile(connection, await this.resolveRemotePath(connection, params.remotePath, timeout), localPath, timeout);
       return `Successfully downloaded ${params.remotePath} to ${params.localPath}`;
     }
 
     let commandToRun = this.getExecutableCommand(name, params, srv);
     if (commandToRun) {
-      const res = await SSHClient.executeCommand(srv, commandToRun, cwd, timeout);
+      const res = await SSHClient.executeCommand(connection, commandToRun, cwd, timeout);
       let out = res.stdout;
       if (res.stderr) out += `\n[STDERR]\n${res.stderr}`;
       if (res.code !== 0 && res.code !== null && !params.grep) out += `\n[Exited with code ${res.code}]`;
@@ -757,6 +786,15 @@ export class ToolHandlers {
     }
 
     throw new Error(`Unknown tool: ${name}`);
+  }
+
+  /** 相对远程路径依据真实 Shell 目录解析。 */
+  private async resolveRemotePath(connection: SSHConnection, remotePath: string, timeout: number): Promise<string> {
+    if (path.posix.isAbsolute(remotePath)) return remotePath;
+    const result = await SSHClient.executeCommand(connection, 'command pwd -P', undefined, timeout, true);
+    const directory = result.stdout.replace(/\n$/, '');
+    if (result.code !== 0 || result.stdoutTruncated || !path.posix.isAbsolute(directory)) throw new Error('Cannot resolve current shell directory for transfer.');
+    return path.posix.resolve(directory, remotePath);
   }
 
   private validateDeletePath(srv: ServerConfig, requestedPath: string) {
@@ -789,7 +827,7 @@ export class ToolHandlers {
     }
     const roots = this.getAllowedRemoteRoots(srv);
     const allowedPatterns = roots.map((root) => `${this.shellEscape(root)}|${this.shellEscape(root)}/*`).join('|');
-    return `target=$(realpath -m -- ${this.shellEscape(requestedPath)}) && case "$target" in ${allowedPatterns}) rm ${recursive ? '-rf' : '-f'} -- "$target" ;; *) echo 'RM_SAFE: resolved path denied' >&2; exit 64 ;; esac`;
+    return `target=$(realpath -m -- ${this.shellEscape(requestedPath)}) && case "$target" in ${allowedPatterns}) rm ${recursive ? '-rf' : '-f'} -- "$target" ;; *) echo 'RM_SAFE: resolved path denied' >&2; (exit 64) ;; esac`;
   }
 
   private resolveAllowedLocalPath(requestedPath: string, mustExist: boolean): string {

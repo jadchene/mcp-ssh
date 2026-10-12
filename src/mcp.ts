@@ -11,13 +11,19 @@ import { logger } from "./logger.js";
 import { NAME, VERSION } from "./version.js";
 import { buildCodexApprovalMeta } from "./codex-approval.js";
 import { FULL_ACCESS_WARNING } from "./danger-mode.js";
+import { SessionError } from './session-error.js';
+import type { SessionPool } from './sessions.js';
 
 export class MCPServer {
   private server: Server;
   private handlers: ToolHandlers;
   private shuttingDown = false;
+  /** 关闭资源一次，兼顾信号及传输断开。 */
+  private resourcesClosed = false;
+  /** 可移除的进程信号处理器。 */
+  private shutdownListener = () => { void this.shutdown(); };
 
-  constructor(private configManager: ConfigManager) {
+  constructor(private configManager: ConfigManager, sessions?: SessionPool) {
     this.server = new Server(
       {
         name: NAME,
@@ -53,13 +59,13 @@ export class MCPServer {
       return result.action === 'accept'
         ? 'yes'
         : 'no';
-    });
+    }, sessions);
     this.setupHandlers();
 
     this.server.onerror = (error) => logger.error("[MCP Error]", error);
-    const shutdown = () => void this.shutdown();
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
+    this.server.onclose = () => this.closeResources();
+    process.once("SIGINT", this.shutdownListener);
+    process.once("SIGTERM", this.shutdownListener);
   }
 
   private setupHandlers() {
@@ -69,12 +75,13 @@ export class MCPServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const args = request.params.arguments ?? {};
-      const target = typeof args.serverAlias === 'string' ? this.configManager.getServerConfig(args.serverAlias) : undefined;
+      const serverAlias = typeof args.serverAlias === 'string' ? args.serverAlias : typeof args.sessionId === 'string' ? this.handlers.getSessionServerAlias(args.sessionId) : undefined;
+      const target = serverAlias ? this.configManager.getServerConfig(serverAlias) : undefined;
       const warning = target?.dangerMode === true ? FULL_ACCESS_WARNING : undefined;
       try {
         logger.info(`Handling tool call: ${request.params.name}`, {
           argumentKeys: Object.keys(args),
-          serverAlias: typeof args.serverAlias === 'string' ? args.serverAlias : undefined
+          serverAlias
         });
         const clientInfo = request.params._meta?.["io.modelcontextprotocol/clientInfo"] ?? this.server.getClientVersion();
         const result = await this.handlers.handleTool(request.params.name, args, clientInfo);
@@ -86,6 +93,7 @@ export class MCPServer {
           : typeof result === "string" ? result : JSON.stringify(result);
 
         return {
+          ...(typeof result === 'object' && result !== null && !Array.isArray(result) ? { structuredContent: warning ? { ...result, warning } : result } : {}),
           content: [
             {
               type: "text",
@@ -99,7 +107,9 @@ export class MCPServer {
           content: [
             {
               type: "text",
-              text: warning ? JSON.stringify({ error: error.message, warning }) : `Error: ${error.message}`,
+              text: warning || error instanceof SessionError ? JSON.stringify({ error: error.message,
+                ...(error instanceof SessionError ? { code: error.code, reason: error.reason } : {}),
+                ...(warning ? { warning } : {}) }) : `Error: ${error.message}`,
             },
           ],
           isError: true,
@@ -117,11 +127,21 @@ export class MCPServer {
   private async shutdown() {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
+    this.closeResources();
     try {
       await this.server.close();
     } finally {
-      this.configManager.close();
       process.exitCode = 0;
     }
+  }
+
+  /** 传输关闭时清理会话、配置监听和信号处理器。 */
+  private closeResources(): void {
+    if (this.resourcesClosed) return;
+    this.resourcesClosed = true;
+    this.handlers.close();
+    this.configManager.close();
+    process.removeListener('SIGINT', this.shutdownListener);
+    process.removeListener('SIGTERM', this.shutdownListener);
   }
 }

@@ -9,11 +9,14 @@
     "^docker ps$"
   ],
   "defaultTimeout": 60000,
+  "sessionIdleTimeoutMs": 1800000,
+  "maxSessions": 32,
   "allowedLocalRoots": [
     "./transfer"
   ],
   "servers": {
     "prod-web": {
+      "enable": true,
       "desc": "Production Web Server (Jump Host)",
       "host": "10.0.0.5",
       "port": 22,
@@ -41,6 +44,7 @@
       "codexAutoReview": false
     },
     "direct-ssh": {
+      "enable": true,
       "desc": "Direct SSH with Password",
       "host": "192.168.1.59",
       "username": "root",
@@ -50,6 +54,7 @@
       "codexAutoReview": false
     },
     "test-db": {
+      "enable": true,
       "desc": "Read-only Test Database",
       "host": "192.168.1.50",
       "username": "tester",
