@@ -25,7 +25,9 @@
       "passphrase": "${SSH_KEY_PWD}",
       "strictHostKeyChecking": true,
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
-      "allowedRemoteRoots": ["/var/www/html"],
+      "allowedRemoteRoots": [
+        "/var/www/html"
+      ],
       "workingDirectories": {
         "html": {
           "path": "/var/www/html",
@@ -41,7 +43,8 @@
         "hostKeySha256": "SHA256:REPLACE_WITH_BASTION_FINGERPRINT"
       },
       "dangerMode": false,
-      "codexAutoReview": false
+      "codexAutoReview": false,
+      "readOnly": false
     },
     "direct-ssh": {
       "enable": true,
@@ -51,7 +54,10 @@
       "password": "${SERVER_PWD}",
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
       "dangerMode": false,
-      "codexAutoReview": false
+      "codexAutoReview": false,
+      "port": 22,
+      "readOnly": false,
+      "strictHostKeyChecking": true
     },
     "test-db": {
       "enable": true,
@@ -62,7 +68,9 @@
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
       "readOnly": true,
       "dangerMode": false,
-      "codexAutoReview": false
+      "codexAutoReview": false,
+      "port": 22,
+      "strictHostKeyChecking": true
     }
   }
 }

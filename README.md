@@ -2,7 +2,7 @@ English | [简体中文](./README_zh.md)
 
 # mcp-ssh
 
-mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It gives AI agents structured tools for server discovery, shell commands, files, Git, Docker, system services, network checks, and process inspection.
+mcp-ssh gives AI agents persistent SSH sessions and tools for files, Git, Docker, and system inspection.
 
 ## Features
 
@@ -14,11 +14,28 @@ mcp-ssh is a Model Context Protocol (MCP) server for remote SSH operations. It g
 
 ## Quick Start
 
-Install from npm:
+Use Node.js 24 or later and install from npm:
 
 ```bash
 npm install -g @jadchene/mcp-ssh-service
-mcp-ssh-service --config ./config.json
+```
+
+Save the configuration below as `config.json`, replace the host and authentication details, and verify the host-key fingerprint. Then add the service using the [MCP client configuration](#mcp-client-configuration). The client starts this stdio service; no separate background process is needed.
+
+## MCP Client Configuration
+
+Replace `/path/to/config.json` with an absolute config path, such as `C:/mcp/ssh/config.json` on Windows. When using [MCP Gateway](https://github.com/jadchene/mcp-gateway), explicitly pass any credential environment variables through its `transport.envAllowlist` or `transport.env`.
+
+Codex:
+
+```bash
+codex mcp add ssh -- mcp-ssh-service --config /path/to/config.json
+```
+
+Claude Code:
+
+```bash
+claude mcp add ssh -- mcp-ssh-service --config /path/to/config.json
 ```
 
 ## Configuration
@@ -33,19 +50,25 @@ Configuration example:
 {
   "logDir": "./logs",
   "defaultTimeout": 60000,
+  "sessionIdleTimeoutMs": 1800000,
+  "maxSessions": 32,
   "allowedLocalRoots": ["./transfer"],
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
+      "enable": true,
       "desc": "Production web server",
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
-      "privateKeyPath": "${HOME}/.ssh/id_rsa",
+      "privateKeyPath": "./id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
+      "strictHostKeyChecking": true,
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "readOnly": false,
       "dangerMode": false,
+      "codexAutoReview": false,
       "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
@@ -62,41 +85,13 @@ Configuration example:
 }
 ```
 
-Global settings:
+Place the private key beside `config.json`, or set `privateKeyPath` to its actual path. Set `SSH_KEY_PASSPHRASE` in the service's environment for an encrypted key; omit `passphrase` for an unencrypted key. Referenced `${VAR}` variables must exist. Password and jump-host examples are in [config.example.json](config.example.json).
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `logDir` | string | File log directory, relative to the config file. Supports `${VAR}` placeholders. |
-| `commandBlacklist` | string[] | Regex patterns for prohibited command strings. |
-| `commandWhitelist` | string[] | Regex patterns for trusted final commands that can skip confirmation. |
-| `defaultTimeout` | number | Command timeout in milliseconds. Defaults to `60000`. |
-| `sessionIdleTimeoutMs` | number | Session idle timeout in milliseconds. Defaults to `1800000` (30 minutes). |
-| `maxSessions` | number | Session limit, including connections being established. Defaults to `32`. |
-| `allowedLocalRoots` | string[] | Local roots available to upload/download. Relative paths resolve from the config directory; omitted means local file access is disabled. |
-| `servers` | object | Server configs keyed by server alias. |
+Configuration changes reload automatically; invalid updates keep the last valid configuration. Changing SSH connection identity or disabling a server invalidates its sessions; call `connect` again after correcting or re-enabling the server configuration.
 
-Server fields:
+Relative private-key, log, and local transfer paths resolve from the config directory. Omitting `allowedLocalRoots` disables local file transfers; `allowedRemoteRoots` restricts only deletion through `rm_safe`. Timeouts are in milliseconds, and `maxSessions` includes connections being established.
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `desc` | string | Human-readable server purpose shown to agents. |
-| `enable` | boolean | Defaults to `true`. Set `false` to hide the server, block connections, and close its sessions. |
-| `host` | string | SSH hostname or IP. Supports environment variables. |
-| `port` | number | SSH port. Defaults to `22`. |
-| `username` | string | SSH username. |
-| `password` | string | SSH password. Prefer `${VAR}` placeholders. |
-| `privateKeyPath` | string | Path to a private key file. |
-| `passphrase` | string | Private key passphrase. Prefer `${VAR}` placeholders. |
-| `readOnly` | boolean | Disables write and modify tools for this server. |
-| `codexAutoReview` | boolean | Optional, defaults to `false`. Set `true` to enable Codex automatic-review metadata for this server. |
-| `dangerMode` | boolean | Optional, defaults to `false`. Set `true` for Full Access on this server: skip all operation approval and override read-only, command, and path access restrictions. |
-| `strictHostKeyChecking` | boolean | Set to `false` only when you intentionally accept host key bypass. |
-| `hostKeySha256` | string or string[] | Required SSH host-key fingerprint(s) when strict checking is enabled (the default). |
-| `allowedRemoteRoots` | string[] | Optional path roots within which `rm_safe` may delete. |
-| `workingDirectories` | object | Named path aliases with `{ path, desc }`. |
-| `proxyJump` | object | Optional jump host config. |
-
-Obtain and verify a host-key fingerprint through a trusted channel before adding it. For example, `ssh-keyscan <host> | ssh-keygen -lf - -E sha256` prints SHA-256 fingerprints, but the scan itself does not authenticate the host.
+Set `hostKeySha256` to a fingerprint verified through a trusted channel. Use `ssh-keyscan <host> | ssh-keygen -lf - -E sha256` to display fingerprints; the scan itself does not authenticate the host.
 
 ## MCP Tools
 
@@ -116,11 +111,9 @@ Remote tools require `sessionId`; `connect` and `list_working_directories` use `
 
 ## Safety Model
 
-In normal mode, `readOnly` blocks writes and `commandBlacklist` blocks matching commands. `commandWhitelist` may skip write approval but cannot override read-only mode. Free-form commands must be a single shell segment; use structured tools or `execute_batch` for multiple steps.
+`readOnly` blocks writes and `commandBlacklist` blocks matching commands. `commandWhitelist` can skip write confirmation but cannot override read-only mode.
 
-Writes requiring approval use MCP elicitation. Accept executes the displayed operation; decline, cancel, or unavailable elicitation leaves it unexecuted. Optional `codexAutoReview=true` adds approval metadata for Codex clients; the client decides whether to approve.
-
-`dangerMode=true` enables Full Access for that server: approval, command restrictions, and read-only/path policies are bypassed, and responses include a warning. Server enable state, argument validation, SSH authentication, and session execution rules still apply.
+Writes require interactive client approval; `codexAutoReview: true` allows compatible Codex clients to review automatically. `dangerMode: true` enables Full Access, bypassing approval, read-only, command, and path restrictions. SSH authentication and argument validation still apply.
 
 ## Recommended Workflow
 
@@ -128,37 +121,13 @@ Writes requiring approval use MCP elicitation. Accept executes the displayed ope
 2. Call tools sequentially with the returned `sessionId`; directory, variables, and functions persist across calls.
 3. Call `disconnect(sessionId)` when finished.
 
-Use a POSIX-compatible shell and non-interactive foreground commands. Relative remote transfer paths use the current shell directory. Expired sessions require a new `connect`; after a timeout or connection loss, inspect remote results before retrying. Refresh client tool schemas when upgrading from v2.
+Use a POSIX-compatible shell. Free-form commands allow one shell segment; use `execute_batch` for multiple steps. Commands must run in the foreground without interactive input. Relative remote paths use the current shell directory.
+
+A session does not support concurrent operations. Reconnect after idle expiry or connection loss. Running operations do not expire from idleness; check results before retrying a timed-out or interrupted operation.
 
 ## Skill Integration
 
 Agent instructions: [SSH MCP skill](skills/ssh-mcp/SKILL.md).
-
-## MCP Client Configuration
-
-Replace `/path/to/config.json` with an absolute config path.
-
-Codex:
-
-```toml
-[mcp_servers.ssh]
-command = "mcp-ssh-service"
-args = ["--config", "/path/to/config.json"]
-```
-
-Claude Code / Gemini CLI:
-
-```json
-{
-  "mcpServers": {
-    "ssh": {
-      "type": "stdio",
-      "command": "mcp-ssh-service",
-      "args": ["--config", "/path/to/config.json"]
-    }
-  }
-}
-```
 
 ## Development
 

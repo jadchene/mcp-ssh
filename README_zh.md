@@ -2,7 +2,7 @@
 
 # mcp-ssh
 
-mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服务。它为 AI Agent 提供结构化工具，用于服务器发现、Shell 命令、文件、Git、Docker、系统服务、网络检查和进程排查。
+mcp-ssh 为 AI Agent 提供持久 SSH 会话，以及文件管理、Git、Docker 和系统检查工具。
 
 ## 功能
 
@@ -14,11 +14,28 @@ mcp-ssh 是一个用于远程 SSH 操作的 Model Context Protocol（MCP）服�
 
 ## 快速开始
 
-从 npm 安装：
+准备 Node.js 24 或更高版本，从 npm 安装：
 
 ```bash
 npm install -g @jadchene/mcp-ssh-service
-mcp-ssh-service --config ./config.json
+```
+
+将下方配置保存为 `config.json`，修改主机和认证信息，并核验主机密钥指纹，再按 [MCP 客户端配置](#mcp-客户端配置)接入。客户端会启动这个 stdio 服务，无需单独运行后台进程。
+
+## MCP 客户端配置
+
+请将 `/path/to/config.json` 替换为配置文件的绝对路径，Windows 可使用 `C:/mcp/ssh/config.json`。通过 [MCP Gateway](https://github.com/jadchene/mcp-gateway) 接入时，凭据环境变量需在网关的 `transport.envAllowlist` 或 `transport.env` 中显式传递。
+
+Codex：
+
+```bash
+codex mcp add ssh -- mcp-ssh-service --config /path/to/config.json
+```
+
+Claude Code：
+
+```bash
+claude mcp add ssh -- mcp-ssh-service --config /path/to/config.json
 ```
 
 ## 配置
@@ -33,19 +50,25 @@ mcp-ssh-service --config ./config.json
 {
   "logDir": "./logs",
   "defaultTimeout": 60000,
+  "sessionIdleTimeoutMs": 1800000,
+  "maxSessions": 32,
   "allowedLocalRoots": ["./transfer"],
   "commandBlacklist": ["^apt-get upgrade", "curl.*\\|.*sh"],
   "commandWhitelist": ["^systemctl status\\s+nginx$", "^docker ps$"],
   "servers": {
     "prod-web": {
+      "enable": true,
       "desc": "Production web server",
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
-      "privateKeyPath": "${HOME}/.ssh/id_rsa",
+      "privateKeyPath": "./id_rsa",
       "passphrase": "${SSH_KEY_PASSPHRASE}",
+      "strictHostKeyChecking": true,
       "hostKeySha256": "SHA256:REPLACE_WITH_SERVER_FINGERPRINT",
+      "readOnly": false,
       "dangerMode": false,
+      "codexAutoReview": false,
       "allowedRemoteRoots": ["/srv/app"],
       "workingDirectories": {
         "app": {
@@ -62,41 +85,13 @@ mcp-ssh-service --config ./config.json
 }
 ```
 
-全局配置：
+将私钥放在 `config.json` 旁边，或将 `privateKeyPath` 改为实际路径。加密私钥需在服务的运行环境中设置 `SSH_KEY_PASSPHRASE`；未加密私钥可省略 `passphrase`。配置引用的 `${VAR}` 环境变量必须存在。密码和跳板机示例见 [config.example.json](config.example.json)。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `logDir` | string | 文件日志目录，相对路径以配置文件目录为基准，支持 `${VAR}` 占位。 |
-| `commandBlacklist` | string[] | 被禁止的命令字符串正则。 |
-| `commandWhitelist` | string[] | 可信最终命令正则，匹配后可跳过确认。 |
-| `defaultTimeout` | number | 命令超时时间，单位毫秒，默认 `60000`。 |
-| `sessionIdleTimeoutMs` | number | 会话空闲超时，单位毫秒，默认 `1800000`（30 分钟）。 |
-| `maxSessions` | number | 会话数量上限，包含建立中的连接，默认 `32`。 |
-| `allowedLocalRoots` | string[] | 允许上传/下载访问的本地根目录；相对路径以配置文件目录为基准，省略时禁止本地文件访问。 |
-| `servers` | object | 以服务器别名为 key 的服务器配置。 |
+配置修改后自动重载，无效更新会保留上一份有效配置。修改 SSH 连接身份或禁用服务器会使对应会话失效；修正配置或重新启用服务器后，需再次调用 `connect`。
 
-服务器字段：
+本地私钥、日志和传输目录的相对路径均以配置目录为基准；省略 `allowedLocalRoots` 会禁止本地文件传输。`allowedRemoteRoots` 只限制 `rm_safe` 的删除范围。超时字段单位为毫秒，`maxSessions` 包含建立中的连接。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `desc` | string | 展示给 Agent 的服务器用途描述。 |
-| `enable` | boolean | 默认 `true`；设为 `false` 隐藏服务器、禁止连接并关闭已有会话。 |
-| `host` | string | SSH 主机名或 IP，支持环境变量。 |
-| `port` | number | SSH 端口，默认 `22`。 |
-| `username` | string | SSH 用户名。 |
-| `password` | string | SSH 密码，建议使用 `${VAR}` 占位。 |
-| `privateKeyPath` | string | 私钥文件路径。 |
-| `passphrase` | string | 私钥口令，建议使用 `${VAR}` 占位。 |
-| `readOnly` | boolean | 禁用该服务器的写入和修改工具。 |
-| `codexAutoReview` | boolean | 可选，默认 `false`；显式设为 `true` 才启用本服务器的 Codex 自动审批元数据。 |
-| `dangerMode` | boolean | 可选，默认 `false`；设为 `true` 启用本服务器的 Full Access，跳过全部操作审批并覆盖只读、命令及路径访问限制。 |
-| `strictHostKeyChecking` | boolean | 只有明确接受跳过 host key 校验时才设为 `false`。 |
-| `hostKeySha256` | string 或 string[] | 开启严格校验（默认）时必须配置的 SSH 主机密钥指纹。 |
-| `allowedRemoteRoots` | string[] | `rm_safe` 可执行删除的可选远程路径根目录。 |
-| `workingDirectories` | object | `{ path, desc }` 形式的命名路径别名。 |
-| `proxyJump` | object | 可选跳板机配置。 |
-
-请先通过可信渠道核验主机密钥指纹再写入配置。`ssh-keyscan <host> | ssh-keygen -lf - -E sha256` 可输出 SHA-256 指纹，但扫描动作本身不能证明主机身份。
+`hostKeySha256` 须填写经可信渠道核验的指纹。可用 `ssh-keyscan <host> | ssh-keygen -lf - -E sha256` 查看指纹，但扫描本身不能证明主机身份。
 
 ## MCP 工具
 
@@ -116,11 +111,9 @@ mcp-ssh-service --config ./config.json
 
 ## 安全模型
 
-普通模式下，`readOnly` 禁止写操作，`commandBlacklist` 拦截匹配命令；`commandWhitelist` 可跳过写操作确认，但不能覆盖只读限制。自由命令仅允许单个 Shell 片段，多步骤操作使用结构化工具或 `execute_batch`。
+`readOnly` 禁止写入，`commandBlacklist` 拦截匹配命令；`commandWhitelist` 可免除写入确认，但不能覆盖只读限制。
 
-需要确认的写操作使用 MCP elicitation。接受后执行展示的操作；拒绝、取消或客户端不支持确认时不执行。可选的 `codexAutoReview=true` 为 Codex 客户端添加审批元数据，是否批准由客户端决定。
-
-`dangerMode=true` 为该服务器启用 Full Access，跳过审批、命令及只读/路径策略，响应中附带警告。服务器启用状态、参数校验、SSH 认证和会话执行规则仍然有效。
+写入需客户端交互确认；`codexAutoReview: true` 允许兼容的 Codex 客户端自动审查。`dangerMode: true` 启用 Full Access，跳过审批并覆盖只读、命令和路径限制；SSH 认证和参数校验仍然生效。
 
 ## 推荐流程
 
@@ -128,37 +121,13 @@ mcp-ssh-service --config ./config.json
 2. 使用返回的 `sessionId` 顺序调用工具，目录、变量和函数跨调用保持。
 3. 完成后调用 `disconnect(sessionId)`。
 
-远程 Shell 须兼容 POSIX，命令须无需交互输入并在前台完成。传输的相对远程路径以 Shell 当前目录为基准。会话失效后需重新 `connect`；超时或断线后，先检查远程结果再决定是否重试。从 v2 升级时请刷新客户端工具定义。
+远程 Shell 须兼容 POSIX。自由命令只允许单个 Shell 片段，多步骤使用 `execute_batch`；命令需无需交互输入并在前台完成。相对远程路径以当前 Shell 目录为基准。
+
+同一会话不支持并发；空闲过期或断线后需重新 `connect`。执行中的操作不会因空闲过期而中断；超时或断线后，先核实结果再重试。
 
 ## Skill 集成
 
 Agent 使用指引：[SSH MCP Skill](skills/ssh-mcp/SKILL.md)。
-
-## MCP 客户端配置
-
-请将 `/path/to/config.json` 替换为配置文件的绝对路径。
-
-Codex：
-
-```toml
-[mcp_servers.ssh]
-command = "mcp-ssh-service"
-args = ["--config", "/path/to/config.json"]
-```
-
-Claude Code / Gemini CLI：
-
-```json
-{
-  "mcpServers": {
-    "ssh": {
-      "type": "stdio",
-      "command": "mcp-ssh-service",
-      "args": ["--config", "/path/to/config.json"]
-    }
-  }
-}
-```
 
 ## 开发
 
