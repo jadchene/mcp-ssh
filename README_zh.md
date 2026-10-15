@@ -24,7 +24,7 @@ npm install -g @jadchene/mcp-ssh-service
 
 ## MCP 客户端配置
 
-请将 `/path/to/config.json` 替换为配置文件的绝对路径，Windows 可使用 `C:/mcp/ssh/config.json`。通过 [MCP Gateway](https://github.com/jadchene/mcp-gateway) 接入时，凭据环境变量需在网关的 `transport.envAllowlist` 或 `transport.env` 中显式传递。
+请将 `/path/to/config.json` 替换为配置文件的绝对路径，Windows 可使用 `C:/mcp/ssh/config.json`。
 
 Codex：
 
@@ -42,7 +42,7 @@ claude mcp add ssh -- mcp-ssh-service --config /path/to/config.json
 
 通过 `--config <path>` 或 `MCP_SSH_CONFIG` 指定配置文件，默认读取当前工作目录下的 `config.json`。
 
-升级前请阅读[配置迁移指南](docs/CONFIG_MIGRATION.md)。
+从低于 **3.0.0** 的版本升级到 **3.x** 时，请阅读[迁移指南](docs/CONFIG_MIGRATION.md)。
 
 配置示例：
 

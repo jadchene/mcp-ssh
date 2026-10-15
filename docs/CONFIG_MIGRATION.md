@@ -1,12 +1,22 @@
-# Security hardening configuration migration
+# MCP SSH migration guide
 
-This guide applies when upgrading from a configuration created before the security-hardening changes. The new defaults intentionally fail closed: SSH host identity must be verified, local file access must be explicitly scoped, and `rm_safe` must be limited to approved remote roots.
+Use this guide when an upgrade crosses one of these version boundaries:
 
-## Required changes
+| Upgrade | Required changes |
+| --- | --- |
+| Before **1.5.0** → **1.5.0 or later** | Configure host-key fingerprints, environment variables, and file-access roots. See [Security configuration](#security-configuration-v150). |
+| Before **2.0.0** → **2.0.0 or later** | Use a client with interactive confirmation support; remove the old two-step confirmation flow. See [Write confirmation](#write-confirmation-v200). |
+| Before **3.0.0** → **3.x** | Refresh tool schemas and switch remote calls to explicit sessions. See [Persistent sessions](#persistent-sessions-v300). |
 
-### 1. Configure SSH host-key fingerprints
+Apply each section whose boundary your upgrade crosses. Existing 3.x setups and new installations using the current configuration example do not need migration.
 
-Host-key verification is enabled by default. Add `hostKeySha256` to every server and jump host:
+## Security configuration (v1.5.0)
+
+The path, read-only, and approval restrictions below apply when `dangerMode` is absent or `false`. Since v2.0.3, explicitly setting `dangerMode: true` bypasses those restrictions. It does not disable SSH host-key verification.
+
+### Host-key fingerprints
+
+Add a verified `hostKeySha256` to every server and configured jump host. Relative private-key paths resolve from the configuration directory:
 
 ```json
 {
@@ -15,7 +25,7 @@ Host-key verification is enabled by default. Add `hostKeySha256` to every server
       "host": "10.0.0.5",
       "port": 22,
       "username": "deploy",
-      "privateKeyPath": "${HOME}/.ssh/id_rsa",
+      "privateKeyPath": "./id_rsa",
       "hostKeySha256": "SHA256:REPLACE_WITH_VERIFIED_FINGERPRINT",
       "proxyJump": {
         "host": "bastion.example.com",
@@ -29,98 +39,71 @@ Host-key verification is enabled by default. Add `hostKeySha256` to every server
 }
 ```
 
-Multiple fingerprints can be supplied during a controlled host-key rotation:
+Omit `proxyJump` for a direct connection. Set `JUMP_PASSWORD` in the service environment when using the example above. Every referenced `${VAR}` must exist; do not assume `HOME` is defined on Windows.
 
-```json
-"hostKeySha256": [
-  "SHA256:CURRENT_FINGERPRINT",
-  "SHA256:NEXT_FINGERPRINT"
-]
-```
-
-Obtain the expected fingerprint from a trusted source such as the server console, infrastructure inventory, or administrator. The following command prints fingerprints advertised by a host, but the scan itself does not authenticate that host:
+Obtain fingerprints from a trusted source such as the server console or administrator. This command displays advertised fingerprints but does not authenticate the host:
 
 ```bash
 ssh-keyscan example.com | ssh-keygen -lf - -E sha256
 ```
 
-Emergency compatibility escape hatch:
+`hostKeySha256` also accepts an array for host-key rotation. Setting `strictHostKeyChecking: false` disables identity verification; remove any temporary bypass after migration.
 
-```json
-"strictHostKeyChecking": false
-```
+### Local file transfers
 
-This disables server identity verification and should only be used temporarily in an isolated environment.
-
-### 2. Allow local upload and download paths
-
-Local file access is disabled when `allowedLocalRoots` is absent or empty. Add the smallest directories needed by file-transfer tools:
+Merge `allowedLocalRoots` into the top-level configuration and create the listed directories:
 
 ```json
 {
-  "allowedLocalRoots": [
-    "./transfer",
-    "${HOME}/mcp-ssh-artifacts"
-  ]
+  "allowedLocalRoots": ["./transfer", "./artifacts"]
 }
 ```
 
-Relative roots are resolved from the directory containing `config.json`. Upload sources and download destinations are resolved to their real local paths and must remain inside one of these roots. Downloads refuse symbolic-link destinations and are written to a temporary file before an atomic rename.
+Relative roots resolve from the configuration directory. Upload sources and download destinations must remain within these roots; omitting the list disables local transfers. Downloads reject symbolic-link destinations.
 
-The `download_file` tool is now treated as a write operation. It requires interactive elicitation confirmation and is rejected for servers configured with `readOnly: true`.
+`download_file` is a write operation: it requires interactive confirmation and is blocked by `readOnly: true`.
 
-### 3. Restrict `rm_safe` to explicit remote roots
+### Remote deletion
 
-`rm_safe` now accepts only absolute paths within `allowedRemoteRoots`:
+Add `allowedRemoteRoots` to each server entry that needs `rm_safe`:
 
 ```json
 {
-  "servers": {
-    "prod-web": {
-      "allowedRemoteRoots": [
-        "/srv/app/releases",
-        "/var/www/app/cache"
-      ]
-    }
-  }
+  "allowedRemoteRoots": ["/srv/app/releases", "/var/www/app/cache"]
 }
 ```
 
-The target is normalized locally and resolved again on the remote host with `realpath` immediately before deletion. Deletion is denied when the resolved path leaves the configured roots. Broad system roots such as `/`, `/etc`, `/usr`, `/var`, `/home`, and `/root` cannot be configured directly.
+`rm_safe` requires an absolute target path and checks its remote real path against these roots before deletion. Broad system roots such as `/`, `/etc`, `/usr`, `/var`, `/home`, and `/root` are rejected. Omitting the list disables `rm_safe`.
 
-If `allowedRemoteRoots` is absent, `rm_safe` is disabled for that server.
+## Write confirmation (v2.0.0)
 
-## Behavior changes
+Write operations requiring approval must use a client that supports interactive confirmation. The old `confirmationId` / `confirmExecution` retry flow is no longer accepted. Accept executes the displayed operation; decline, cancel, or unavailable confirmation leaves it unexecuted.
 
-| Area | Previous behavior | New behavior |
-| --- | --- | --- |
-| SSH host identity | Host keys could be accepted without verification | SHA-256 fingerprint required by default |
-| Missing environment variable | Placeholder became an empty string | Configuration load fails |
-| Invalid regex or range | Often failed later at execution | Configuration or tool request is rejected early |
-| Local file transfer | Arbitrary process-accessible paths | Explicit `allowedLocalRoots` sandbox |
-| `download_file` | No confirmation; allowed on read-only server | Confirmation required; blocked on read-only server |
-| `touch` | Not classified as a write | Confirmation/read-only policy enforced |
-| `rm_safe` | Small exact-path denylist | Absolute allowlisted roots plus remote real-path check |
-| Unknown tool fields | Could pass through schema declarations | Rejected by runtime JSON Schema validation |
-| Command output | Truncated only after full buffering | Captured with a fixed per-stream byte limit |
+## Persistent sessions (v3.0.0)
 
-## Migration checklist
+Refresh the client's tool schemas after upgrading. `connect` creates the SSH connection and persistent POSIX-compatible shell; remote tools now require its `sessionId` instead of `serverAlias`:
 
-1. Back up the current `config.json`.
-2. Add verified `hostKeySha256` values for every server and `proxyJump`.
-3. Create the required local transfer directories and add minimal `allowedLocalRoots` entries.
-4. Add narrow `allowedRemoteRoots` entries only on servers that need `rm_safe`.
-5. Confirm every `${ENV_VAR}` used by the configuration exists in the service environment.
-6. Start the service, call `list_servers`, and call `connect(serverAlias)` on an enabled server. Use the returned `sessionId` for `ping_server` and remote operations; `list_working_directories` still uses `serverAlias`.
-7. Test upload, download, and deletion against non-production paths before rollout.
-8. Remove any temporary `strictHostKeyChecking: false` setting.
+```text
+connect({ serverAlias: "prod-web" }) → sessionId = S
+pwd({ sessionId: S })
+disconnect({ sessionId: S })
+```
 
-## Version 3 persistent sessions
+`list_servers` takes no target, and `list_working_directories` still uses `serverAlias`. Calls and batches within one session share directory, variables, and functions. Run same-session operations sequentially; expired IDs require a new `connect`.
 
-Remote tools require `sessionId`; sending only `serverAlias` is rejected. Refresh the client's tool schemas after upgrading. Only `connect` creates an SSH connection and persistent POSIX-compatible shell. Individual calls and batches share directory, variables, and functions. Call `disconnect` when finished; expired IDs cannot be reused or automatically reconnected.
+Optional top-level session settings:
 
-Optional global configuration: `sessionIdleTimeoutMs` defaults to `1800000` (30 minutes), and `maxSessions` defaults to `32`, including connections being established. Idle expiry pauses while an operation executes, but approval waiting does not pause expiry. Command or transfer timeout invalidates the session.
+```json
+{
+  "sessionIdleTimeoutMs": 1800000,
+  "maxSessions": 32
+}
+```
 
-Each `servers.<alias>.enable` defaults to `true`. Set it to `false` to retain configuration while hiding the server from discovery, blocking connections, and invalidating existing sessions. Disabled entries do not load credentials or key files until re-enabled. Changing connection identity, host keys, credentials, or jump-host configuration invalidates existing sessions; permission changes apply on subsequent calls.
+Idle expiry pauses during execution but not while waiting for approval. Command or transfer timeout invalidates the session; verify the remote result before retrying. The session limit includes connections being established.
 
-See [`config.example.json`](../config.example.json) for a complete example.
+`servers.<alias>.enable` defaults to `true`. Disabling a server hides it and invalidates its sessions without loading its credentials or key files. Connection identity, host-key, credential, or jump-host changes invalidate sessions; permission changes apply on subsequent calls.
+
+Back up `config.json` before upgrading. After applying the relevant sections, restart the service, refresh client schemas, and verify a read-only call through `connect` → `pwd` → `disconnect`.
+
+See [config.example.json](../config.example.json) for a complete configuration.

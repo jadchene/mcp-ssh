@@ -24,7 +24,7 @@ Save the configuration below as `config.json`, replace the host and authenticati
 
 ## MCP Client Configuration
 
-Replace `/path/to/config.json` with an absolute config path, such as `C:/mcp/ssh/config.json` on Windows. When using [MCP Gateway](https://github.com/jadchene/mcp-gateway), explicitly pass any credential environment variables through its `transport.envAllowlist` or `transport.env`.
+Replace `/path/to/config.json` with an absolute config path, such as `C:/mcp/ssh/config.json` on Windows.
 
 Codex:
 
@@ -42,7 +42,7 @@ claude mcp add ssh -- mcp-ssh-service --config /path/to/config.json
 
 Select a config file with `--config <path>` or `MCP_SSH_CONFIG`. The default is `config.json` in the current working directory.
 
-Upgrading? Read the [configuration migration guide](docs/CONFIG_MIGRATION.md).
+When upgrading from a version before **3.0.0** to **3.x**, read the [migration guide](docs/CONFIG_MIGRATION.md).
 
 Configuration example:
 
