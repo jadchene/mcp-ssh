@@ -94,7 +94,7 @@ const DEFAULT_BLACKLIST = [
   /reboot/i
 ];
 
-export interface OperationConfirmationPreview {
+interface OperationConfirmationPreview {
   tool: string;
   /** 实际工具参数，供自动审批审阅。 */
   arguments: Record<string, unknown>;
@@ -109,7 +109,7 @@ export interface OperationConfirmationPreview {
   message: string;
 }
 
-export type InteractiveConfirmation = (
+type InteractiveConfirmation = (
   preview: OperationConfirmationPreview
 ) => Promise<'yes' | 'no' | 'unavailable'>;
 

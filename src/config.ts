@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { logger, updateLogTransports } from './logger.js';
 
-export interface WorkingDirectory {
+interface WorkingDirectory {
   path: string;
   desc: string;
 }
@@ -46,7 +46,7 @@ export interface ServerConfig {
   allowedRemoteRoots?: string[];
 }
 
-export interface AppConfig {
+interface AppConfig {
   /** 会话空闲失效时间，默认 30 分钟。 */
   sessionIdleTimeoutMs?: number;
   /** 同时存在的会话和建立中连接的数量上限，默认 32。 */

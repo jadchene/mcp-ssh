@@ -98,11 +98,6 @@ export class SSHClient {
     return config;
   }
 
-  /** 限制工具最终输出长度。 */
-  public static truncate(text: string): string {
-    return text.length <= 30000 ? text : text.substring(0, 30000) + `\n\n[... Output truncated (${text.length} chars) ...]`;
-  }
-
   /** 仅供 connect 工具调用，成功返回已经初始化的持久 Shell。 */
   public static async connect(server: ServerConfig, signal?: AbortSignal): Promise<SSHConnection> {
     const config = this.getBaseConnectConfig(server);
