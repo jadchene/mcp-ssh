@@ -31,7 +31,7 @@ async function main() {
       project: "ssh", configPath, args, defaultPort: 3101,
       validate: raw => configManager!.validateRaw(raw), reload: () => configManager!.reload()
     });
-    await web.start();
+    await web.startOptional();
     const server = new MCPServer(configManager, undefined, () => { void web?.close(); });
     await server.start();
   } catch (error) {

@@ -231,6 +231,17 @@ export class ConfigWebServer {
     process.stderr.write(`Configuration Web: ${url} (local only)\n`);
   }
 
+  /** Web 是可选入口，启动失败时释放资源并让 MCP 继续运行。 */
+  async startOptional(): Promise<void> {
+    try {
+      await this.start();
+    } catch (error) {
+      await this.close();
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[warn] Configuration Web failed to start; MCP continues: ${message}\n`);
+    }
+  }
+
   /** 停止入口并等待已开始的保存完成。 */
   async close(): Promise<void> {
     const server = this.server;

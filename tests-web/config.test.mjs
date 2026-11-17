@@ -260,3 +260,41 @@ test('Real CLI defaults to disabled and --no-web overrides enabled file without 
     await closed;
   }
 });
+
+test('Web port failure warns while MCP stdio and Gateway HTTP remain usable', { timeout: 25000 }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), `mcp-${project}-web-failure-`));
+  const configPath = path.join(directory, 'config.json');
+  const occupied = http.createServer((_req, res) => res.end('original listener'));
+  await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
+  const webPort = occupied.address().port;
+  t.after(async () => { occupied.closeAllConnections(); await new Promise(resolve => occupied.close(resolve)); await rm(directory, {recursive: true, force: true}); });
+  const original = JSON.stringify({...baseConfig(), web: {enabled: true, port: webPort}});
+  await writeFile(configPath, original);
+  for (const httpMode of project === 'gateway' ? [false, true] : [false]) {
+    const mcpPort = httpMode ? await port() : undefined;
+    const child = spawn(process.execPath, ['dist/index.js', '--config', configPath, ...(httpMode ? ['--http', '--port', String(mcpPort)] : [])], {stdio: ['pipe', 'pipe', 'pipe']});
+    t.after(() => child.kill());
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const initialize = {jsonrpc: '2.0', id: 91, method: 'initialize', params: {protocolVersion: '2025-11-25', capabilities: {}, clientInfo: {name: 'web-failure', version: '1'}}};
+    await waitFor(() => stderr.includes('MCP continues'), child);
+    assert.match(stderr, /EADDRINUSE/);
+    if (httpMode) {
+      const response = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json, text/event-stream'}, body: JSON.stringify(initialize)});
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /"protocolVersion"/);
+    } else {
+      child.stdin.write(JSON.stringify(initialize) + '\n');
+      await waitFor(() => stdout.includes('"id":91'), child);
+      const response = stdout.split('\n').filter(Boolean).map(line => JSON.parse(line)).find(value => value.id === 91);
+      assert.ok(response.result?.protocolVersion);
+    }
+    assert.equal((await fetch(`http://127.0.0.1:${webPort}`)).status, 200);
+    assert.equal(await readFile(configPath, 'utf8'), original);
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    if (httpMode) child.kill(); else child.stdin.end();
+    await exited;
+    if (!httpMode) assert.equal(child.exitCode, 0);
+  }
+});
