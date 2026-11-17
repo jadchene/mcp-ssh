@@ -23,7 +23,7 @@ export class MCPServer {
   /** 可移除的进程信号处理器。 */
   private shutdownListener = () => { void this.shutdown(); };
 
-  constructor(private configManager: ConfigManager, sessions?: SessionPool) {
+  constructor(private configManager: ConfigManager, sessions?: SessionPool, private readonly onResourcesClosed: () => void = () => {}) {
     this.server = new Server(
       {
         name: NAME,
@@ -66,6 +66,8 @@ export class MCPServer {
     this.server.onclose = () => this.closeResources();
     process.once("SIGINT", this.shutdownListener);
     process.once("SIGTERM", this.shutdownListener);
+    process.stdin.once("end", this.shutdownListener);
+    process.stdin.once("close", this.shutdownListener);
   }
 
   private setupHandlers() {
@@ -139,9 +141,12 @@ export class MCPServer {
   private closeResources(): void {
     if (this.resourcesClosed) return;
     this.resourcesClosed = true;
+    this.onResourcesClosed();
     this.handlers.close();
     this.configManager.close();
     process.removeListener('SIGINT', this.shutdownListener);
     process.removeListener('SIGTERM', this.shutdownListener);
+    process.stdin.removeListener('end', this.shutdownListener);
+    process.stdin.removeListener('close', this.shutdownListener);
   }
 }

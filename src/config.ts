@@ -1,3 +1,5 @@
+import { validateWebConfig, type WebConfig } from './web-config/options.js';
+import { validateFormTypes, configSchema } from './web-config/schema.js';
 import fs from 'fs';
 import path from 'path';
 import { logger, updateLogTransports } from './logger.js';
@@ -47,6 +49,8 @@ export interface ServerConfig {
 }
 
 interface AppConfig {
+  /** 只在启动时读取的 Web 设置。 */
+  web?: WebConfig;
   /** 会话空闲失效时间，默认 30 分钟。 */
   sessionIdleTimeoutMs?: number;
   /** 同时存在的会话和建立中连接的数量上限，默认 32。 */
@@ -97,10 +101,26 @@ export class ConfigManager {
     }
   }
 
+  /** 校验原始草稿，不解析环境变量或读取私钥。 */
+  public validateRaw(raw: unknown): void {
+    validateFormTypes(raw, configSchema("ssh"));
+    this.validateConfig(raw as AppConfig);
+  }
+
+  /** 手动重载并反馈结果，失败时保留旧配置。 */
+  public reload(): void {
+    if (!fs.existsSync(this.configPath)) throw new Error('Configuration file no longer exists');
+    const next = this.loadConfig(true);
+    if (!next) throw new Error("Configuration is empty");
+    this.config = next;
+    for (const listener of this.listeners) listener();
+  }
+
   private validateConfig(config: AppConfig) {
     if (!config || typeof config !== 'object' || !config.servers || typeof config.servers !== 'object' || Array.isArray(config.servers)) {
       throw new Error(`Configuration must contain a 'servers' object.`);
     }
+    validateWebConfig(config.web);
     if (config.defaultTimeout !== undefined && (!Number.isInteger(config.defaultTimeout) || config.defaultTimeout < 100 || config.defaultTimeout > 3600000)) {
       throw new Error(`defaultTimeout must be an integer from 100 to 3600000 milliseconds.`);
     }

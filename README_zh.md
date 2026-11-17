@@ -147,3 +147,18 @@ node dist/index.js --config ./config.json
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Web 配置页面
+
+默认关闭，固定监听本机 `127.0.0.1`，无需令牌。使用独立端口，不影响 MCP 通信。
+
+```sh
+mcp-ssh-service --config ./config.json --web --web-port 3101
+```
+
+打开终端显示的地址即可配置。也可在现有配置文件中添加 `"web": { "enabled": true, "port": 3101 }`。
+
+- 命令行优先于文件。`--web` 开启、`--no-web` 关闭；都不传时读取 `web.enabled`，未配置则关闭。仅指定端口不会开启 Web。
+- 表单修改点击“保存配置”后写入原文件并热加载；检测到外部修改时提示冲突。加载失败会单独提示。
+- “运行信息”可查看监听配置和文件位置。Web 开关、端口需修改文件或启动参数并重启，页面内只读。
+- Web 随进程退出。多个客户端启动多个实例时，只为指定实例开启 Web，避免端口冲突。

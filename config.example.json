@@ -72,5 +72,10 @@
       "port": 22,
       "strictHostKeyChecking": true
     }
+  },
+  "web": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 3101
   }
 }

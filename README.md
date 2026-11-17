@@ -144,6 +144,21 @@ Run the built server:
 node dist/index.js --config ./config.json
 ```
 
+## Web configuration
+
+Disabled by default. Web binds only to `127.0.0.1`, needs no token, and uses a separate port from MCP communication.
+
+```sh
+mcp-ssh-service --config ./config.json --web --web-port 3101
+```
+
+Open the printed URL. Alternatively, add `"web": { "enabled": true, "port": 3101 }` to your existing configuration.
+
+- CLI overrides the file: `--web` enables, `--no-web` disables; with neither, `web.enabled` applies and defaults to false. A port alone does not enable Web.
+- Click Save configuration to write the original file and reload it. External edits trigger a conflict; reload failures are reported separately.
+- Runtime information shows listener settings and the configuration file location. Web enablement and port are read-only in the UI; change the file or startup arguments and restart.
+- Web stops with the process. If multiple clients launch separate instances, enable Web on only one instance to avoid port conflicts.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
