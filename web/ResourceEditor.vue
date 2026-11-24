@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import FieldInput from "./FieldInput.vue";
 import FieldGrid from "./FieldGrid.vue";
@@ -17,12 +17,6 @@ const props = defineProps({
 });
 const emit = defineEmits(["update:modelValue", "rename", "remove"]);
 const tab = ref("connection");
-watch(
-  () => props.alias,
-  () => {
-    tab.value = "connection";
-  },
-);
 const base = computed(() => {
   const root = configSchema(props.project).properties;
   return props.project === "gateway"
@@ -259,7 +253,6 @@ const setSsl = async (enabled) => {
               @update:model-value="update('desc', $event)"
               placeholder="例如：生产环境 Web 服务器"
             /><FieldInput
-              commit
               label="主机标识"
               :model-value="alias"
               @update:model-value="emit('rename', $event)"

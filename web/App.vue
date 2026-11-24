@@ -10,6 +10,8 @@ const appVersion = __APP_VERSION__;
 
 const data = ref(null);
 const draft = ref({});
+// 编辑中的主机标识可以暂时为空或重名，保存前仍用原键定位草稿。
+const pendingAliases = ref(new Map());
 const selected = ref("");
 const section = ref("resources");
 const query = ref("");
@@ -20,7 +22,9 @@ const baseline = ref("");
 const revision = ref("");
 const operation = ref("");
 const resourceEditor = ref(null);
-const dirty = computed(() => JSON.stringify(draft.value) !== baseline.value);
+const dirty = computed(
+  () => pendingAliases.value.size > 0 || JSON.stringify(draft.value) !== baseline.value,
+);
 const project = computed(() => data.value?.project ?? "gateway");
 const meta = computed(
   () =>
@@ -55,12 +59,13 @@ const entries = computed(() =>
   Object.entries(draft.value[collectionKey.value] ?? {}).map(
     ([key, value]) => ({
       key,
+      alias: pendingAliases.value.get(key) ?? key,
       value,
       name:
         project.value === "gateway"
           ? value.name || value.serviceId || "未命名服务"
           : project.value === "ssh"
-            ? value.desc || key
+            ? value.desc || pendingAliases.value.get(key) || key
             : value.key || "未命名数据源",
       subtitle:
         project.value === "gateway"
@@ -81,7 +86,7 @@ const entries = computed(() =>
 );
 const visible = computed(() =>
   entries.value.filter((item) =>
-    `${item.name} ${item.key} ${item.value.serviceId ?? ""} ${item.subtitle} ${item.badge}`
+    `${item.name} ${item.alias} ${item.value.serviceId ?? ""} ${item.subtitle} ${item.badge}`
       .toLowerCase()
       .includes(query.value.trim().toLowerCase()),
   ),
@@ -111,6 +116,7 @@ const showConfigFile = async () => {
 };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const modified = (item) => {
+  if (pendingAliases.value.has(item.key)) return true;
   const saved = data.value.config[collectionKey.value];
   const original = Array.isArray(saved)
     ? saved.find((value) =>
@@ -186,19 +192,39 @@ const load = () =>
       return;
     const result = await api("/api/config");
     data.value = result;
+    pendingAliases.value.clear();
     draft.value = clone(result.config);
     baseline.value = JSON.stringify(result.config);
     revision.value = result.revision;
     if (!entries.value.some((item) => item.key === selected.value))
       selected.value = entries.value[0]?.key ?? "";
   }, "load");
+/** 检查最终标识后再生成主机映射，重名时保留两条草稿。 */
+const configToSave = () => {
+  if (project.value !== "ssh") return draft.value;
+  const aliases = new Set();
+  const servers = entries.value.map(({ alias, value, key }) => {
+    if (!alias.trim()) throw new Error(`请填写“${value.desc || key}”的主机标识。`);
+    if (aliases.has(alias)) throw new Error(`主机标识“${alias}”重复，请使用其他名称。`);
+    aliases.add(alias);
+    const missing = [];
+    if (!value.host) missing.push("主机地址");
+    if (!value.username) missing.push("用户名");
+    if (missing.length) throw new Error(`请填写主机“${alias}”的${missing.join("和")}。`);
+    return [alias, value];
+  });
+  return { ...draft.value, servers: Object.fromEntries(servers) };
+};
 const save = () =>
   run(async () => {
-    validateFormTypes(draft.value, data.value.schema);
+    const config = configToSave();
+    validateFormTypes(config, data.value.schema);
     const result = await api("/api/config", {
-      config: draft.value,
+      config,
       revision: revision.value,
     });
+    selected.value = pendingAliases.value.get(selected.value) ?? selected.value;
+    pendingAliases.value.clear();
     draft.value = clone(result.config);
     data.value.config = clone(result.config);
     baseline.value = JSON.stringify(result.config);
@@ -218,6 +244,7 @@ const discard = async () => {
   )
     return;
   draft.value = clone(data.value.config);
+  pendingAliases.value.clear();
   error.value = "";
   notice.value = "";
   if (!entries.value.some((item) => item.key === selected.value))
@@ -241,16 +268,8 @@ const updateResource = (value) => {
   draft.value = { ...draft.value, [collectionKey.value]: collection };
 };
 const rename = (value) => {
-  if (!value || value === selected.value) return;
-  const collection = draft.value.servers;
-  if (Object.hasOwn(collection, value)) {
-    error.value = "主机标识已存在，请使用其他名称。";
-    return;
-  }
-  const next = { ...collection, [value]: collection[selected.value] };
-  delete next[selected.value];
-  draft.value = { ...draft.value, servers: next };
-  selected.value = value;
+  if (value === selected.value) pendingAliases.value.delete(selected.value);
+  else pendingAliases.value.set(selected.value, value);
 };
 const add = () => {
   const prefix = { gateway: "service", ssh: "server", database: "database" }[
@@ -261,6 +280,7 @@ const add = () => {
     entries.value.some(
       (item) =>
         item.key === `${prefix}-${index}` ||
+        item.alias === `${prefix}-${index}` ||
         item.value.key === `${prefix}-${index}` ||
         item.value.serviceId === `${prefix}-${index}`,
     )
@@ -315,6 +335,7 @@ const remove = async () => {
   else {
     next = { ...collection };
     delete next[selected.value];
+    pendingAliases.value.delete(selected.value);
   }
   draft.value = { ...draft.value, [collectionKey.value]: next };
   selected.value = entries.value[0]?.key ?? "";
@@ -518,7 +539,7 @@ onBeforeUnmount(() => {
               ref="resourceEditor"
               :key="active.key"
               :project="project"
-              :alias="active.key"
+              :alias="active.alias"
               :model-value="active.value"
               :saved-url="savedUrl"
               @update:model-value="updateResource"

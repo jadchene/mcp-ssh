@@ -87,7 +87,7 @@ const access = {
   dangerMode: bool("Full Access"),
 };
 const identity = {
-  host: string("主机", true),
+  host: string("主机地址", true),
   port: port(22),
   username: string("用户名", true),
   password: password("密码"),

@@ -13,7 +13,6 @@ const props = defineProps({
   min: Number,
   max: Number,
   wide: Boolean,
-  commit: Boolean,
 });
 const emit = defineEmits(["update:modelValue"]);
 const revealed = ref(false);
@@ -109,8 +108,7 @@ const update = (value) =>
       :id="inputId"
       :aria-describedby="hint ? `${inputId}-hint` : undefined"
       :model-value="modelValue ?? ''"
-      @update:model-value="!commit && update($event)"
-      @change="commit && update($event)"
+      @update:model-value="update"
       :type="
         type === 'password'
           ? 'password'
